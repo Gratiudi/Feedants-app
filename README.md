@@ -1,5 +1,16 @@
 # Feedants Competition Details — Schema & State Design
 
+## MVP assumptions and scope
+
+This project is built as a pragmatic MVP for a competition platform, not a full production admin system.
+
+- Competition browsing and detail pages are in scope.
+- Registration and submission flows are in scope.
+- Result display is in scope.
+- A dedicated admin dashboard is not built out here; instead, a lightweight results endpoint is exposed for manual winner upload with an `X-Admin-Secret` header.
+- Real auth is intentionally out of scope for this version. In production, this would be replaced with proper judge/admin role-based authentication.
+- File uploads are represented as `fileUrl` / `mediaUrl` strings for the assignment. For a production deployment, a storage solution such as Cloudinary or local disk storage can be added.
+
 ## Entities: Competition, Judge, User, Registration, Submission, Result
 
 ---
