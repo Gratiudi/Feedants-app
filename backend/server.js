@@ -9,10 +9,11 @@ const User = require("./src/models/User");
 const Registration = require("./src/models/Registration");
 const Submission = require("./src/models/Submission");
 const Result = require("./src/models/Result");
+const authRoutes = require("./src/routes/auth");
+const { requireAuth, requireAdmin, optionalAuth } = require("./src/middleware/auth");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const ADMIN_SECRET = process.env.ADMIN_SECRET || "dev-admin-secret";
 
 function deriveCompetitionStatus(competition, now = new Date()) {
   const registrationStatus =
@@ -58,10 +59,13 @@ async function getUserCompetitionState(userId, competitionId) {
 app.use(cors());
 app.use(express.json());
 
+app.use("/api/auth", authRoutes);
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Public: browsing competitions doesn't require login
 app.get("/api/competitions", async (req, res) => {
   try {
     const competitions = await Competition.find().populate("judgeId").sort({ createdAt: -1 });
@@ -83,13 +87,17 @@ app.get("/api/competitions/:id", async (req, res) => {
   }
 });
 
-app.get("/api/competitions/:id/state", async (req, res) => {
+// State is personal (registration/submission status for the caller),
+// but should still work for logged-out users browsing — so auth is optional here.
+// If a token is present we use it; if not, we just show competition-level status.
+app.get("/api/competitions/:id/state", optionalAuth, async (req, res) => {
   try {
-    const { userId } = req.query;
     const competition = await Competition.findById(req.params.id);
     if (!competition) {
       return res.status(404).json({ message: "Competition not found" });
     }
+
+    const userId = req.user?.userId; // only set if a valid token was sent (see optionalAuth note below)
 
     const userState = userId
       ? await getUserCompetitionState(userId, competition._id)
@@ -120,7 +128,8 @@ app.get("/api/competitions/:id/state", async (req, res) => {
   }
 });
 
-app.post("/api/competitions", async (req, res) => {
+// Admin-only: creating competitions shouldn't be public
+app.post("/api/competitions", requireAuth, requireAdmin, async (req, res) => {
   try {
     const competition = await Competition.create(req.body);
     res.status(201).json(competition);
@@ -129,12 +138,9 @@ app.post("/api/competitions", async (req, res) => {
   }
 });
 
-app.post("/api/competitions/:id/register", async (req, res) => {
+app.post("/api/competitions/:id/register", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ message: "userId is required" });
-    }
+    const userId = req.user.userId; // trust the token, not the body
 
     const competition = await Competition.findById(req.params.id);
     if (!competition) {
@@ -176,11 +182,13 @@ app.post("/api/competitions/:id/register", async (req, res) => {
   }
 });
 
-app.post("/api/competitions/:id/submissions", async (req, res) => {
+app.post("/api/competitions/:id/submissions", requireAuth, async (req, res) => {
   try {
-    const { userId, registrationId, fileUrl, mediaUrl } = req.body;
-    if (!userId || !fileUrl) {
-      return res.status(400).json({ message: "userId and fileUrl are required" });
+    const userId = req.user.userId; // trust the token, not the body
+    const { registrationId, fileUrl, mediaUrl } = req.body;
+
+    if (!fileUrl) {
+      return res.status(400).json({ message: "fileUrl is required" });
     }
 
     const competition = await Competition.findById(req.params.id);
@@ -199,6 +207,11 @@ app.post("/api/competitions/:id/submissions", async (req, res) => {
 
     if (!registration) {
       return res.status(403).json({ message: "User is not registered for this competition" });
+    }
+
+    // also make sure the registration actually belongs to this caller
+    if (String(registration.userId) !== String(userId)) {
+      return res.status(403).json({ message: "Registration does not belong to this user" });
     }
 
     if (String(registration.competitionId) !== String(competition._id)) {
@@ -237,13 +250,9 @@ app.get("/api/competitions/:id/results", async (req, res) => {
   }
 });
 
-app.post("/api/competitions/:id/results", async (req, res) => {
+// Admin-only: replaces the old shared-secret header check
+app.post("/api/competitions/:id/results", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const secretHeader = req.headers["x-admin-secret"];
-    if (ADMIN_SECRET && secretHeader !== ADMIN_SECRET) {
-      return res.status(403).json({ message: "Admin access required" });
-    }
-
     const { winners } = req.body;
     if (!Array.isArray(winners) || winners.length === 0) {
       return res.status(400).json({ message: "winners array is required" });
@@ -279,7 +288,8 @@ app.get("/api/judges", async (req, res) => {
   }
 });
 
-app.get("/api/users", async (req, res) => {
+// Admin-only: listing every user is sensitive (PII: email, phone)
+app.get("/api/users", requireAuth, requireAdmin, async (req, res) => {
   try {
     const users = await User.find().sort({ createdAt: -1 });
     res.json(users);
@@ -288,7 +298,8 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-app.get("/api/registrations", async (req, res) => {
+// Admin-only: full registration list across all users
+app.get("/api/registrations", requireAuth, requireAdmin, async (req, res) => {
   try {
     const registrations = await Registration.find().populate("userId").populate("competitionId");
     res.json(registrations);
@@ -297,7 +308,8 @@ app.get("/api/registrations", async (req, res) => {
   }
 });
 
-app.get("/api/submissions", async (req, res) => {
+// Admin-only: full submission list across all users
+app.get("/api/submissions", requireAuth, requireAdmin, async (req, res) => {
   try {
     const submissions = await Submission.find().populate("userId").populate("competitionId");
     res.json(submissions);

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -100,25 +101,77 @@ function formatTime(dateString?: string) {
 
 export default function CompetitionDetailScreen() {
   const [competition, setCompetition] = useState<Competition>(fallbackCompetition);
+  const [buttonText, setButtonText] = useState('Register');
+  const [userState, setUserState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchCompetition = async () => {
-      try {
-        const response = await fetch('http://localhost:5000/api/competitions');
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setCompetition(data[0]);
-        }
-      } catch (error) {
-        console.error('Unable to load competition data', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const userId = '6ab80159af1cb0a779bbb9bf'; // Hardcoded for Nisha Patel for MVP
 
+  const fetchCompetition = async () => {
+    try {
+      setLoading(true);
+      // First get all competitions to find the first one
+      const response = await fetch('http://localhost:5000/api/competitions');
+      const data = await response.json();
+      
+      if (Array.isArray(data) && data.length > 0) {
+        const compId = data[0]._id;
+        // Now fetch the detailed state for this user
+        const stateRes = await fetch(`http://localhost:5000/api/competitions/${compId}/state?userId=${userId}`);
+        const stateData = await stateRes.json();
+        
+        setCompetition(stateData.competition);
+        setButtonText(stateData.buttonText);
+        setUserState(stateData.userState);
+      }
+    } catch (error) {
+      console.error('Unable to load competition data', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     void fetchCompetition();
   }, []);
+
+  const handleAction = async () => {
+    if (buttonText === 'Register') {
+      try {
+        setLoading(true);
+        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          Alert.alert('Error', err.message || 'Registration failed');
+        }
+        await fetchCompetition();
+      } catch (e) {
+        console.error(e);
+      }
+    } else if (buttonText === 'Upload Submission') {
+      try {
+        setLoading(true);
+        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/submissions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, fileUrl: 'https://example.com/my-dance-video.mp4' })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          Alert.alert('Error', err.message || 'Submission failed');
+        }
+        await fetchCompetition();
+      } catch (e) {
+        console.error(e);
+      }
+    } else if (buttonText === 'View Results') {
+      Alert.alert('Results', 'Results are ready! You can view the winners in the previous winners section.');
+    }
+  };
 
   const rewardRows = competition.rewards ?? fallbackCompetition.rewards ?? [];
   const judgeName = competition.judgeId?.name ?? 'Manju Dubey';
@@ -138,9 +191,11 @@ export default function CompetitionDetailScreen() {
 
           <View style={styles.titleRow}>
             <Text style={styles.title}>{competition.title}</Text>
-            <View style={styles.registeredBadge}>
-              <Text style={styles.registeredText}>✓ Registered</Text>
-            </View>
+            {userState?.registrationStatus === 'registered' && (
+              <View style={styles.registeredBadge}>
+                <Text style={styles.registeredText}>✓ Registered</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.tagRow}>
@@ -300,10 +355,15 @@ export default function CompetitionDetailScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.bottomActionCard}>
-            <Text style={styles.actionTitle}>Upload Submission</Text>
-            <Text style={styles.actionSubtitle}>Registered</Text>
-          </View>
+          <Pressable 
+            style={[styles.bottomActionCard, (buttonText === 'Registration Closed' || buttonText === 'Submitted — Registered' || buttonText === 'Awaiting Results') && { opacity: 0.7 }]}
+            onPress={handleAction}
+          >
+            <Text style={styles.actionTitle}>{buttonText}</Text>
+            {userState?.registrationStatus === 'registered' && (
+              <Text style={styles.actionSubtitle}>Registered</Text>
+            )}
+          </Pressable>
 
           {loading && (
             <View style={styles.loaderWrap}>
