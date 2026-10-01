@@ -154,7 +154,7 @@ app.get("/api/competitions/:id/state", optionalAuth, async (req, res) => {
   }
 });
 
-app.post("/api/competitions", requireAdmin async (req, res) => {
+app.post("/api/competitions", requireAuth, requireAdmin, async (req, res) => {
   try {
     const competition = await Competition.create(req.body);
     res.status(201).json(competition);
@@ -295,13 +295,8 @@ app.get("/api/competitions/:id/results", async (req, res) => {
   }
 });
 
-app.post("/api/competitions/:id/results", async (req, res) => {
+app.post("/api/competitions/:id/results", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const secretHeader = req.headers["x-admin-secret"];
-    if (ADMIN_SECRET && secretHeader !== ADMIN_SECRET) {
-      return res.status(403).json({ message: "Admin access required" });
-    }
-
     const { winners } = req.body;
     if (!Array.isArray(winners) || winners.length === 0) {
       return res.status(400).json({ message: "winners array is required" });
@@ -337,7 +332,7 @@ app.get("/api/judges", async (req, res) => {
   }
 });
 
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", requireAuth, requireAdmin, async (req, res) => {
   try {
     const users = await User.find().sort({ createdAt: -1 });
     res.json(users);
@@ -346,7 +341,7 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-app.get("/api/registrations", async (req, res) => {
+app.get("/api/registrations",requireAuth, requireAdmin, async (req, res) => {
   try {
     const registrations = await Registration.find()
       .populate("userId")
@@ -357,7 +352,7 @@ app.get("/api/registrations", async (req, res) => {
   }
 });
 
-app.get("/api/submissions", async (req, res) => {
+app.get("/api/submissions", requireAuth, requireAdmin, async (req, res) => {
   try {
     const submissions = await Submission.find()
       .populate("userId")
