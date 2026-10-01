@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: true },
     photoUrl: { type: String },
     passwordHash: { type: String, required: true, select: false },
-    referralCode: { type: String, unique: true },
+    referralCode: { type: String, unique: true, sparse: true },
     role: { type: String, enum: ["user", "admin"], default: "user" },
   },
   { timestamps: true },

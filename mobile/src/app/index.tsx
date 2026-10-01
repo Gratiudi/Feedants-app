@@ -1,14 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Winner = {
   name: string;
@@ -25,7 +24,12 @@ type Competition = {
   entryFee?: number;
   totalSpots?: number;
   spotsBooked?: number;
-  judgeId?: { name?: string; title?: string; yearsOfExperience?: number; photoUrl?: string };
+  judgeId?: {
+    name?: string;
+    title?: string;
+    yearsOfExperience?: number;
+    photoUrl?: string;
+  };
   registerBefore?: string;
   submissionStart?: string;
   submissionEnd?: string;
@@ -37,24 +41,25 @@ type Competition = {
 };
 
 const fallbackCompetition: Competition = {
-  _id: 'fallback',
-  title: 'Feedants Classical Dance',
-  description: 'This is an online classical dance competition open for all age groups. Participate from anywhere and showcase your talent. Express your passion through traditional dance.',
-  tags: ['Dance', 'Multi-Win', 'Winners get certificate'],
+  _id: "fallback",
+  title: "Feedants Classical Dance",
+  description:
+    "This is an online classical dance competition open for all age groups. Participate from anywhere and showcase your talent. Express your passion through traditional dance.",
+  tags: ["Dance", "Multi-Win", "Winners get certificate"],
   prizePool: 1500,
   entryFee: 99,
   totalSpots: 20,
   spotsBooked: 1,
   judgeId: {
-    name: 'Manju Dubey',
-    title: 'Professional Kathak Dancer',
+    name: "Manju Dubey",
+    title: "Professional Kathak Dancer",
     yearsOfExperience: 12,
-    photoUrl: '',
+    photoUrl: "",
   },
-  registerBefore: '2026-08-10T23:55:00.000Z',
-  submissionStart: '2026-08-06T04:00:00.000Z',
-  submissionEnd: '2026-08-30T11:55:00.000Z',
-  resultDate: '2026-09-01T23:55:00.000Z',
+  registerBefore: "2026-08-10T23:55:00.000Z",
+  submissionStart: "2026-08-06T04:00:00.000Z",
+  submissionEnd: "2026-08-30T11:55:00.000Z",
+  resultDate: "2026-09-01T23:55:00.000Z",
   rewards: [
     { position: 1, amount: 550 },
     { position: 2, amount: 300 },
@@ -63,125 +68,78 @@ const fallbackCompetition: Competition = {
     { position: 5, amount: 130 },
     { position: 6, amount: 80 },
   ],
-  judgingParameters: 'Technique, expression, rhythm, stage presence.',
-  rulesAndEligibility: 'Open to all. Participants must be registered and submit original performances.',
-  refundPolicy: 'Refunds are available only before registration closes.',
+  judgingParameters: "Technique, expression, rhythm, stage presence.",
+  rulesAndEligibility:
+    "Open to all. Participants must be registered and submit original performances.",
+  refundPolicy: "Refunds are available only before registration closes.",
 };
 
 const winnerCards: Winner[] = [
-  { name: 'Riya Shah', position: '1st Winner', color: '#8d4dff' },
-  { name: 'Aarav Mehta', position: '1st Winner', color: '#f59e0b' },
-  { name: 'Neha Verma', position: '2nd Winner', color: '#34d399' },
-  { name: 'Ishita Chou', position: '3rd Winner', color: '#f87171' },
+  { name: "Riya Shah", position: "1st Winner", color: "#8d4dff" },
+  { name: "Aarav Mehta", position: "1st Winner", color: "#f59e0b" },
+  { name: "Neha Verma", position: "2nd Winner", color: "#34d399" },
+  { name: "Ishita Chou", position: "3rd Winner", color: "#f87171" },
 ];
 
 function formatCurrency(value?: number) {
   const amount = value ?? 0;
-  return `₹ ${amount.toLocaleString('en-IN')}`;
+  return `₹ ${amount.toLocaleString("en-IN")}`;
 }
 
 function formatDateLabel(dateString?: string) {
-  if (!dateString) return 'TBD';
+  if (!dateString) return "TBD";
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: '2-digit',
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
   });
 }
 
 function formatTime(dateString?: string) {
-  if (!dateString) return 'TBD';
+  if (!dateString) return "TBD";
   const date = new Date(dateString);
-  return date.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
 export default function CompetitionDetailScreen() {
-  const [competition, setCompetition] = useState<Competition>(fallbackCompetition);
-  const [buttonText, setButtonText] = useState('Register');
-  const [userState, setUserState] = useState<any>(null);
+  const [competition, setCompetition] =
+    useState<Competition>(fallbackCompetition);
   const [loading, setLoading] = useState(true);
 
-  const userId = '6ab80159af1cb0a779bbb9bf'; // Hardcoded for Nisha Patel for MVP
-
-  const fetchCompetition = async () => {
-    try {
-      setLoading(true);
-      // First get all competitions to find the first one
-      const response = await fetch('http://localhost:5000/api/competitions');
-      const data = await response.json();
-      
-      if (Array.isArray(data) && data.length > 0) {
-        const compId = data[0]._id;
-        // Now fetch the detailed state for this user
-        const stateRes = await fetch(`http://localhost:5000/api/competitions/${compId}/state?userId=${userId}`);
-        const stateData = await stateRes.json();
-        
-        setCompetition(stateData.competition);
-        setButtonText(stateData.buttonText);
-        setUserState(stateData.userState);
-      }
-    } catch (error) {
-      console.error('Unable to load competition data', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchCompetition = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/competitions");
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setCompetition(data[0]);
+        }
+      } catch (error) {
+        console.error("Unable to load competition data", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     void fetchCompetition();
   }, []);
 
-  const handleAction = async () => {
-    if (buttonText === 'Register') {
-      try {
-        setLoading(true);
-        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId })
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          Alert.alert('Error', err.message || 'Registration failed');
-        }
-        await fetchCompetition();
-      } catch (e) {
-        console.error(e);
-      }
-    } else if (buttonText === 'Upload Submission') {
-      try {
-        setLoading(true);
-        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/submissions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, fileUrl: 'https://example.com/my-dance-video.mp4' })
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          Alert.alert('Error', err.message || 'Submission failed');
-        }
-        await fetchCompetition();
-      } catch (e) {
-        console.error(e);
-      }
-    } else if (buttonText === 'View Results') {
-      Alert.alert('Results', 'Results are ready! You can view the winners in the previous winners section.');
-    }
-  };
-
   const rewardRows = competition.rewards ?? fallbackCompetition.rewards ?? [];
-  const judgeName = competition.judgeId?.name ?? 'Manju Dubey';
-  const judgeTitle = competition.judgeId?.title ?? 'Professional Kathak Dancer';
+  const judgeName = competition.judgeId?.name ?? "Manju Dubey";
+  const judgeTitle = competition.judgeId?.title ?? "Professional Kathak Dancer";
   const judgeYears = competition.judgeId?.yearsOfExperience ?? 12;
 
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
           <View style={styles.topBar}>
             <Text style={styles.backText}>← Go back</Text>
             <View style={styles.langBadge}>
@@ -191,11 +149,9 @@ export default function CompetitionDetailScreen() {
 
           <View style={styles.titleRow}>
             <Text style={styles.title}>{competition.title}</Text>
-            {userState?.registrationStatus === 'registered' && (
-              <View style={styles.registeredBadge}>
-                <Text style={styles.registeredText}>✓ Registered</Text>
-              </View>
-            )}
+            <View style={styles.registeredBadge}>
+              <Text style={styles.registeredText}>✓ Registered</Text>
+            </View>
           </View>
 
           <View style={styles.tagRow}>
@@ -209,16 +165,24 @@ export default function CompetitionDetailScreen() {
           <View style={styles.metricsRow}>
             <View style={styles.metricBox}>
               <Text style={styles.metricLabel}>Prize Pool</Text>
-              <Text style={styles.metricValue}>{formatCurrency(competition.prizePool)}</Text>
+              <Text style={styles.metricValue}>
+                {formatCurrency(competition.prizePool)}
+              </Text>
             </View>
             <View style={styles.metricBox}>
               <Text style={styles.metricLabel}>Entry Fee</Text>
-              <Text style={styles.metricValue}>{formatCurrency(competition.entryFee)}</Text>
+              <Text style={styles.metricValue}>
+                {formatCurrency(competition.entryFee)}
+              </Text>
             </View>
             <View style={styles.metricBox}>
               <Text style={styles.metricLabel}>Spots Left</Text>
               <Text style={styles.metricValue}>
-                {Math.max((competition.totalSpots ?? 0) - (competition.spotsBooked ?? 0), 0)}
+                {Math.max(
+                  (competition.totalSpots ?? 0) -
+                    (competition.spotsBooked ?? 0),
+                  0,
+                )}
               </Text>
             </View>
           </View>
@@ -234,18 +198,25 @@ export default function CompetitionDetailScreen() {
                 ]}
               />
             </View>
-            <Text style={styles.progressMeta}>{competition.spotsBooked ?? 0} / {competition.totalSpots ?? 0} Booked</Text>
+            <Text style={styles.progressMeta}>
+              {competition.spotsBooked ?? 0} / {competition.totalSpots ?? 0}{" "}
+              Booked
+            </Text>
           </View>
 
           <View style={styles.judgeCard}>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>{judgeName.slice(0, 2).toUpperCase()}</Text>
+              <Text style={styles.avatarText}>
+                {judgeName.slice(0, 2).toUpperCase()}
+              </Text>
             </View>
             <View style={styles.judgeInfo}>
               <Text style={styles.smallLabel}>Judge</Text>
               <Text style={styles.judgeName}>{judgeName}</Text>
               <Text style={styles.judgeMeta}>{judgeTitle}</Text>
-              <Text style={styles.judgeMeta}>{judgeYears} Years of Experience</Text>
+              <Text style={styles.judgeMeta}>
+                {judgeYears} Years of Experience
+              </Text>
             </View>
             <Pressable style={styles.videoButton}>
               <Text style={styles.videoIcon}>▶</Text>
@@ -270,26 +241,42 @@ export default function CompetitionDetailScreen() {
             <View style={styles.dateBox}>
               <Text style={styles.dateIcon}>🗓</Text>
               <Text style={styles.dateHeading}>Register Before</Text>
-              <Text style={styles.dateValue}>{formatDateLabel(competition.registerBefore)}</Text>
-              <Text style={styles.dateValue}>{formatTime(competition.registerBefore)}</Text>
+              <Text style={styles.dateValue}>
+                {formatDateLabel(competition.registerBefore)}
+              </Text>
+              <Text style={styles.dateValue}>
+                {formatTime(competition.registerBefore)}
+              </Text>
             </View>
             <View style={styles.dateBox}>
               <Text style={styles.dateIcon}>✦</Text>
               <Text style={styles.dateHeading}>Submission Starts</Text>
-              <Text style={styles.dateValue}>{formatDateLabel(competition.submissionStart)}</Text>
-              <Text style={styles.dateValue}>{formatTime(competition.submissionStart)}</Text>
+              <Text style={styles.dateValue}>
+                {formatDateLabel(competition.submissionStart)}
+              </Text>
+              <Text style={styles.dateValue}>
+                {formatTime(competition.submissionStart)}
+              </Text>
             </View>
             <View style={styles.dateBox}>
               <Text style={styles.dateIcon}>⇧</Text>
               <Text style={styles.dateHeading}>Submission Ends</Text>
-              <Text style={styles.dateValue}>{formatDateLabel(competition.submissionEnd)}</Text>
-              <Text style={styles.dateValue}>{formatTime(competition.submissionEnd)}</Text>
+              <Text style={styles.dateValue}>
+                {formatDateLabel(competition.submissionEnd)}
+              </Text>
+              <Text style={styles.dateValue}>
+                {formatTime(competition.submissionEnd)}
+              </Text>
             </View>
             <View style={styles.dateBox}>
               <Text style={styles.dateIcon}>◔</Text>
               <Text style={styles.dateHeading}>Result Date</Text>
-              <Text style={styles.dateValue}>{formatDateLabel(competition.resultDate)}</Text>
-              <Text style={styles.dateValue}>{formatTime(competition.resultDate)}</Text>
+              <Text style={styles.dateValue}>
+                {formatDateLabel(competition.resultDate)}
+              </Text>
+              <Text style={styles.dateValue}>
+                {formatTime(competition.resultDate)}
+              </Text>
             </View>
           </View>
 
@@ -297,8 +284,15 @@ export default function CompetitionDetailScreen() {
           <View style={styles.winnersRow}>
             {winnerCards.map((winner) => (
               <View key={winner.name} style={styles.winnerCard}>
-                <View style={[styles.winnerAvatar, { backgroundColor: winner.color }]}>
-                  <Text style={styles.winnerInitial}>{winner.name.slice(0, 2).toUpperCase()}</Text>
+                <View
+                  style={[
+                    styles.winnerAvatar,
+                    { backgroundColor: winner.color },
+                  ]}
+                >
+                  <Text style={styles.winnerInitial}>
+                    {winner.name.slice(0, 2).toUpperCase()}
+                  </Text>
                 </View>
                 <Text style={styles.winnerName}>{winner.name}</Text>
                 <Text style={styles.winnerPosition}>{winner.position}</Text>
@@ -319,20 +313,37 @@ export default function CompetitionDetailScreen() {
           <View style={styles.rewardList}>
             {rewardRows.map((reward) => (
               <View key={reward.position} style={styles.rewardRow}>
-                <Text style={styles.rewardText}>🏆 {reward.position}{reward.position === 1 ? 'st' : reward.position === 2 ? 'nd' : reward.position === 3 ? 'rd' : 'th'} Winner</Text>
-                <Text style={styles.rewardAmount}>{formatCurrency(reward.amount)}</Text>
+                <Text style={styles.rewardText}>
+                  🏆 {reward.position}
+                  {reward.position === 1
+                    ? "st"
+                    : reward.position === 2
+                      ? "nd"
+                      : reward.position === 3
+                        ? "rd"
+                        : "th"}{" "}
+                  Winner
+                </Text>
+                <Text style={styles.rewardAmount}>
+                  {formatCurrency(reward.amount)}
+                </Text>
               </View>
             ))}
           </View>
 
           <View style={styles.noticeBox}>
-            <Text style={styles.noticeText}>ℹ Disclaimer: Only contributions from paid participants will be considered for judging.</Text>
+            <Text style={styles.noticeText}>
+              ℹ Disclaimer: Only contributions from paid participants will be
+              considered for judging.
+            </Text>
           </View>
 
           <View style={styles.infoGrid}>
             <View style={styles.infoRowItem}>
               <Text style={styles.infoRowIcon}>▶</Text>
-              <Text style={styles.infoText}>How will you receive prize money?</Text>
+              <Text style={styles.infoText}>
+                How will you receive prize money?
+              </Text>
             </View>
             <View style={styles.infoRowItem}>
               <Text style={styles.infoRowIcon}>✓</Text>
@@ -340,30 +351,31 @@ export default function CompetitionDetailScreen() {
             </View>
             <View style={styles.infoRowItem}>
               <Text style={styles.infoRowIcon}>✓</Text>
-              <Text style={styles.infoText}>Secure payments powered by Razorpay</Text>
+              <Text style={styles.infoText}>
+                Secure payments powered by Razorpay
+              </Text>
             </View>
           </View>
 
           <View style={styles.referralCard}>
             <Text style={styles.referralTitle}>Refer & Earn more discount</Text>
             <View style={styles.referralInputRow}>
-              <Text style={styles.referralInput}>https://feedants.com/r/referral123</Text>
-              <Pressable style={styles.copyButton}><Text style={styles.copyText}>Copy Link</Text></Pressable>
+              <Text style={styles.referralInput}>
+                https://feedants.com/r/referral123
+              </Text>
+              <Pressable style={styles.copyButton}>
+                <Text style={styles.copyText}>Copy Link</Text>
+              </Pressable>
             </View>
             <Pressable style={styles.referralCTA}>
               <Text style={styles.referralButtonText}>Refer Now</Text>
             </Pressable>
           </View>
 
-          <Pressable 
-            style={[styles.bottomActionCard, (buttonText === 'Registration Closed' || buttonText === 'Submitted — Registered' || buttonText === 'Awaiting Results') && { opacity: 0.7 }]}
-            onPress={handleAction}
-          >
-            <Text style={styles.actionTitle}>{buttonText}</Text>
-            {userState?.registrationStatus === 'registered' && (
-              <Text style={styles.actionSubtitle}>Registered</Text>
-            )}
-          </Pressable>
+          <View style={styles.bottomActionCard}>
+            <Text style={styles.actionTitle}>Upload Submission</Text>
+            <Text style={styles.actionSubtitle}>Registered</Text>
+          </View>
 
           {loading && (
             <View style={styles.loaderWrap}>
@@ -379,7 +391,7 @@ export default function CompetitionDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#edf5f5',
+    backgroundColor: "#edf5f5",
   },
   safeArea: {
     flex: 1,
@@ -389,121 +401,121 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 10,
     marginBottom: 12,
   },
   backText: {
     fontSize: 18,
-    color: '#0d1b2a',
-    fontWeight: '600',
+    color: "#0d1b2a",
+    fontWeight: "600",
   },
   langBadge: {
-    backgroundColor: '#e7ecec',
+    backgroundColor: "#e7ecec",
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   langText: {
     fontSize: 12,
-    color: '#1f2937',
-    fontWeight: '700',
+    color: "#1f2937",
+    fontWeight: "700",
   },
   titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 10,
     gap: 12,
   },
   title: {
     fontSize: 34,
     lineHeight: 40,
-    color: '#0d1b2a',
-    fontWeight: '800',
+    color: "#0d1b2a",
+    fontWeight: "800",
     flex: 1,
     flexShrink: 1,
   },
   registeredBadge: {
-    backgroundColor: '#dff7f2',
+    backgroundColor: "#dff7f2",
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#79d1bf',
+    borderColor: "#79d1bf",
   },
   registeredText: {
-    color: '#0f766e',
+    color: "#0f766e",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   tagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginBottom: 14,
   },
   tagPill: {
-    backgroundColor: '#e8f3f2',
+    backgroundColor: "#e8f3f2",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   tagText: {
-    color: '#0f766e',
+    color: "#0f766e",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   metricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#eef6f5',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: "#eef6f5",
     borderRadius: 18,
     padding: 14,
     marginBottom: 10,
   },
   metricBox: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
   },
   metricLabel: {
-    color: '#3f4b5d',
+    color: "#3f4b5d",
     fontSize: 12,
     marginBottom: 4,
   },
   metricValue: {
-    color: '#0d1b2a',
+    color: "#0d1b2a",
     fontSize: 28,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   progressWrap: {
     marginBottom: 18,
   },
   progressTrack: {
     height: 8,
-    backgroundColor: '#d9e8e8',
+    backgroundColor: "#d9e8e8",
     borderRadius: 999,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressFill: {
-    height: '100%',
-    backgroundColor: '#0fb5a8',
+    height: "100%",
+    backgroundColor: "#0fb5a8",
     borderRadius: 999,
   },
   progressMeta: {
     marginTop: 8,
-    color: '#2c3748',
+    color: "#2c3748",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   judgeCard: {
-    backgroundColor: '#edf8f7',
+    backgroundColor: "#edf8f7",
     borderRadius: 18,
     padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 18,
   },
@@ -511,133 +523,133 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#d7c4ff',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#d7c4ff",
+    justifyContent: "center",
+    alignItems: "center",
   },
   avatarText: {
-    color: '#1f2937',
-    fontWeight: '800',
+    color: "#1f2937",
+    fontWeight: "800",
     fontSize: 18,
   },
   judgeInfo: {
     flex: 1,
   },
   smallLabel: {
-    color: '#536174',
+    color: "#536174",
     fontSize: 12,
     marginBottom: 2,
   },
   judgeName: {
-    color: '#0c2436',
+    color: "#0c2436",
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   judgeMeta: {
-    color: '#536174',
+    color: "#536174",
     fontSize: 12,
     marginTop: 2,
   },
   videoButton: {
-    backgroundColor: '#d8eff1',
+    backgroundColor: "#d8eff1",
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   videoIcon: {
-    color: '#0f766e',
+    color: "#0f766e",
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   videoText: {
-    color: '#0d1b2a',
+    color: "#0d1b2a",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   timerRow: {
-    backgroundColor: '#dff5f2',
+    backgroundColor: "#dff5f2",
     borderRadius: 16,
     padding: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 20,
   },
   timerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     flexShrink: 1,
   },
   timerItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginLeft: 10,
   },
   timerIcon: {
-    color: '#0f766e',
+    color: "#0f766e",
     fontSize: 18,
   },
   timerText: {
-    color: '#0d1b2a',
-    fontWeight: '700',
+    color: "#0d1b2a",
+    fontWeight: "700",
     fontSize: 12,
   },
   timerStrong: {
-    color: '#0d1b2a',
-    fontWeight: '800',
+    color: "#0d1b2a",
+    fontWeight: "800",
     fontSize: 12,
   },
   sectionTitle: {
-    color: '#0d1b2a',
+    color: "#0d1b2a",
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: 12,
   },
   dateGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
     marginBottom: 22,
     gap: 10,
   },
   dateBox: {
-    width: '48%',
-    backgroundColor: '#f3f7f7',
+    width: "48%",
+    backgroundColor: "#f3f7f7",
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#dfe9e9',
+    borderColor: "#dfe9e9",
   },
   dateIcon: {
     fontSize: 18,
     marginBottom: 8,
   },
   dateHeading: {
-    color: '#3d4a5d',
+    color: "#3d4a5d",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 4,
   },
   dateValue: {
-    color: '#0f172a',
+    color: "#0f172a",
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 2,
   },
   winnersRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
     marginBottom: 18,
   },
   winnerCard: {
     flex: 1,
-    alignItems: 'center',
-    backgroundColor: '#f3f6f6',
+    alignItems: "center",
+    backgroundColor: "#f3f6f6",
     borderRadius: 16,
     paddingVertical: 12,
     paddingHorizontal: 8,
@@ -646,63 +658,63 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 8,
   },
   winnerInitial: {
-    color: '#fff',
-    fontWeight: '800',
+    color: "#fff",
+    fontWeight: "800",
     fontSize: 12,
   },
   winnerName: {
-    textAlign: 'center',
-    color: '#0f172a',
+    textAlign: "center",
+    color: "#0f172a",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   winnerPosition: {
     marginTop: 4,
-    color: '#52657b',
+    color: "#52657b",
     fontSize: 11,
   },
   tabsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#edf5f5',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: "#edf5f5",
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
     padding: 4,
     marginBottom: 12,
   },
   activeTab: {
     flex: 1,
-    textAlign: 'center',
-    backgroundColor: '#ffffff',
+    textAlign: "center",
+    backgroundColor: "#ffffff",
     borderRadius: 10,
     paddingVertical: 8,
-    color: '#0ea5a0',
-    fontWeight: '700',
+    color: "#0ea5a0",
+    fontWeight: "700",
     fontSize: 11,
   },
   inactiveTab: {
     flex: 1,
-    textAlign: 'center',
-    color: '#5b6472',
-    fontWeight: '600',
+    textAlign: "center",
+    color: "#5b6472",
+    fontWeight: "600",
     fontSize: 11,
     paddingVertical: 8,
   },
   descriptionText: {
-    color: '#3a4658',
+    color: "#3a4658",
     fontSize: 15,
     lineHeight: 24,
     marginBottom: 8,
   },
   linkText: {
-    color: '#0ea5a0',
+    color: "#0ea5a0",
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 18,
   },
   rewardList: {
@@ -710,124 +722,124 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   rewardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#dfe9e9',
+    borderBottomColor: "#dfe9e9",
   },
   rewardText: {
-    color: '#0d1b2a',
+    color: "#0d1b2a",
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   rewardAmount: {
-    color: '#0d1b2a',
+    color: "#0d1b2a",
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   noticeBox: {
-    backgroundColor: '#dfeef2',
+    backgroundColor: "#dfeef2",
     borderRadius: 12,
     padding: 12,
     marginBottom: 16,
   },
   noticeText: {
-    color: '#0f766e',
+    color: "#0f766e",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   infoGrid: {
     gap: 10,
     marginBottom: 18,
   },
   infoRowItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
-    backgroundColor: '#f4f7f7',
+    backgroundColor: "#f4f7f7",
     borderRadius: 12,
     padding: 12,
   },
   infoRowIcon: {
-    color: '#0f766e',
+    color: "#0f766e",
     fontSize: 16,
   },
   infoText: {
-    color: '#1f2937',
+    color: "#1f2937",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   referralCard: {
-    backgroundColor: '#dff4ef',
+    backgroundColor: "#dff4ef",
     borderRadius: 16,
     padding: 14,
     marginBottom: 20,
   },
   referralTitle: {
-    color: '#0d1b2a',
+    color: "#0d1b2a",
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: 10,
   },
   referralInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     marginBottom: 12,
   },
   referralInput: {
     flex: 1,
-    backgroundColor: '#f4fbfb',
+    backgroundColor: "#f4fbfb",
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    color: '#475569',
+    color: "#475569",
     fontSize: 12,
   },
   copyButton: {
-    backgroundColor: '#eaf4f4',
+    backgroundColor: "#eaf4f4",
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
   },
   copyText: {
-    color: '#0f172a',
+    color: "#0f172a",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   referralCTA: {
-    backgroundColor: '#0d8d8f',
+    backgroundColor: "#0d8d8f",
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: 12,
   },
   referralButtonText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   bottomActionCard: {
-    backgroundColor: '#0a7f7c',
+    backgroundColor: "#0a7f7c",
     borderRadius: 18,
     paddingVertical: 16,
     paddingHorizontal: 18,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 10,
   },
   actionTitle: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   actionSubtitle: {
-    color: '#d9fefb',
+    color: "#d9fefb",
     fontSize: 12,
     marginTop: 4,
   },
   loaderWrap: {
     marginVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
 });
