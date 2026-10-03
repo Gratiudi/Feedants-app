@@ -6,8 +6,13 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as ImagePicker from 'expo-image-picker';
+import { useAuth } from '@/context/AuthContext';
+
 
 type Winner = {
   name: string;
@@ -109,24 +114,118 @@ export default function CompetitionDetailScreen() {
   const [competition, setCompetition] =
     useState<Competition>(fallbackCompetition);
   const [loading, setLoading] = useState(true);
+  const [buttonText, setButtonText] = useState('Register');
+  const { token } = useAuth();
+
+  const fetchCompetition = async () => {
+    try {
+      const response = await fetch("http://localhost:5000/api/competitions");
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setCompetition(data[0]);
+        if (token) {
+          const stateRes = await fetch(`http://localhost:5000/api/competitions/${data[0]._id}/state`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const stateData = await stateRes.json();
+          if (stateRes.ok) {
+            setButtonText(stateData.buttonText || 'Register');
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Unable to load competition data", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchCompetition = async () => {
+    void fetchCompetition();
+  }, [token]);
+
+  const handleAction = async () => {
+    if (!token) {
+      Platform.OS === 'web' ? window.alert('Please log in first') : Alert.alert('Error', 'Please log in first');
+      return;
+    }
+
+    if (buttonText === 'Register') {
       try {
-        const response = await fetch("http://localhost:5000/api/competitions");
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setCompetition(data[0]);
+        setLoading(true);
+        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/register`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+          },
+          body: JSON.stringify({})
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          Platform.OS === 'web' ? window.alert(err.message) : Alert.alert('Error', err.message || 'Registration failed');
         }
+        await fetchCompetition();
       } catch (error) {
-        console.error("Unable to load competition data", error);
+        Platform.OS === 'web' ? window.alert('Unable to register') : Alert.alert('Error', 'Unable to register');
       } finally {
         setLoading(false);
       }
-    };
+    } else if (buttonText === 'Upload Submission') {
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: true,
+        quality: 1,
+      });
 
-    void fetchCompetition();
-  }, []);
+      if (pickerResult.canceled) return;
+      
+      setLoading(true);
+      const videoUri = pickerResult.assets[0].uri;
+
+      try {
+        const data = new FormData();
+        data.append('file', {
+          uri: videoUri,
+          type: 'video/mp4',
+          name: 'submission.mp4'
+        } as any);
+        data.append('upload_preset', 'avrzjqwo'); 
+        data.append('cloud_name', 'jtuedsvv'); 
+
+        const cloudinaryRes = await fetch('https://api.cloudinary.com/v1_1/jtuedsvv/video/upload', {
+          method: 'POST',
+          body: data,
+        });
+
+        const cloudinaryData = await cloudinaryRes.json();
+        if (!cloudinaryRes.ok) throw new Error('Cloudinary Upload Failed');
+
+        const secureVideoUrl = cloudinaryData.secure_url;
+
+        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/submissions`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+          },
+          body: JSON.stringify({ fileUrl: secureVideoUrl })
+        });
+        
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.message || 'Database Submission Failed');
+        }
+
+        Platform.OS === 'web' ? window.alert('Success! Your video has been submitted.') : Alert.alert('Success', 'Your video has been submitted!');
+        await fetchCompetition();
+      } catch (error: any) {
+        Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   const rewardRows = competition.rewards ?? fallbackCompetition.rewards ?? [];
   const judgeName = competition.judgeId?.name ?? "Manju Dubey";
@@ -372,10 +471,9 @@ export default function CompetitionDetailScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.bottomActionCard}>
-            <Text style={styles.actionTitle}>Upload Submission</Text>
-            <Text style={styles.actionSubtitle}>Registered</Text>
-          </View>
+          <Pressable style={styles.bottomActionCard} onPress={handleAction}>
+            <Text style={styles.actionTitle}>{buttonText}</Text>
+          </Pressable>
 
           {loading && (
             <View style={styles.loaderWrap}>
@@ -843,3 +941,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 });
+
+//avrzjqwo
+//jtuedsvv
