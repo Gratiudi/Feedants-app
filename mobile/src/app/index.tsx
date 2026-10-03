@@ -121,10 +121,10 @@ export default function CompetitionDetailScreen() {
     try {
       const response = await fetch("http://localhost:5000/api/competitions");
       const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        setCompetition(data[0]);
+      if (Array.isArray(data) && data.length > 1) {
+        setCompetition(data[1]);
         if (token) {
-          const stateRes = await fetch(`http://localhost:5000/api/competitions/${data[0]._id}/state`, {
+          const stateRes = await fetch(`http://localhost:5000/api/competitions/${data[1]._id}/state`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           const stateData = await stateRes.json();
@@ -185,11 +185,17 @@ export default function CompetitionDetailScreen() {
 
       try {
         const data = new FormData();
-        data.append('file', {
-          uri: videoUri,
-          type: 'video/mp4',
-          name: 'submission.mp4'
-        } as any);
+        if (Platform.OS === 'web') {
+          const fileRes = await fetch(videoUri);
+          const blob = await fileRes.blob();
+          data.append('file', blob, 'submission.mp4');
+        } else {
+          data.append('file', {
+            uri: videoUri,
+            type: 'video/mp4',
+            name: 'submission.mp4'
+          } as any);
+        }
         data.append('upload_preset', 'avrzjqwo'); 
         data.append('cloud_name', 'jtuedsvv'); 
 
