@@ -54,7 +54,7 @@ async function getUserCompetitionState(userId, competitionId) {
   }
 
   return {
-    registrationStatus: "registered",
+    registrationStatus: registration.paymentStatus === "pending" ? "pending_payment" : "registered",
     submissionStatus,
     resultStatus,
   };
@@ -114,8 +114,10 @@ app.get("/api/competitions/:id/state", optionalAuth, async (req, res) => {
     const { registrationStatus, submissionStatus } =
       deriveCompetitionStatus(competition);
 
-    let buttonText = "Register";
-    if (userState.registrationStatus === "registered") {
+    let buttonText = "Pay & Register";
+    if (userState.registrationStatus === "pending_payment") {
+      buttonText = "Pay & Register";
+    } else if (userState.registrationStatus === "registered") {
       if (submissionStatus === "not_started")
         buttonText = "Submission opens soon";
       else if (
@@ -182,6 +184,7 @@ app.post("/api/competitions/:id/register", requireAuth, async (req, res) => {
       userId,
       competitionId: competition._id,
     });
+
     if (alreadyRegistered) {
       return res.status(409).json({ message: "You are already registered" });
     }
@@ -200,11 +203,16 @@ app.post("/api/competitions/:id/register", requireAuth, async (req, res) => {
       userId,
       competitionId: competition._id,
       registeredAt: new Date(),
+      paymentStatus: "paid",          // auto-marked paid in demo mode
+      paymentReference: `DEMO-${Date.now()}`,
     });
 
     return res
       .status(201)
-      .json({ registration, competition: updatedCompetition });
+      .json({ 
+        registration, 
+        competition: updatedCompetition
+      });
   } catch (error) {
     if (error && error.code === 11000) {
       return res.status(409).json({ message: "You are already registered" });
@@ -371,6 +379,32 @@ app.get("/api/results", async (req, res) => {
     res.json(results);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Chapa Webhook Endpoint
+app.post("/api/webhooks/chapa", async (req, res) => {
+  try {
+    const { tx_ref, status } = req.body;
+    
+    // In production, verify the webhook signature using CHAPA_WEBHOOK_SECRET
+    
+    if (status === "success" && tx_ref) {
+      const registration = await Registration.findOneAndUpdate(
+        { tx_ref },
+        { status: "registered" },
+        { new: true }
+      );
+      if (registration) {
+        console.log(`Payment verified for registration: ${registration._id}`);
+      }
+    }
+    
+    // Always return 200 to acknowledge receipt
+    res.status(200).send("Webhook received");
+  } catch (error) {
+    console.error("Webhook error:", error);
+    res.status(500).send("Server Error");
   }
 });
 

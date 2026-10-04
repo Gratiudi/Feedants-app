@@ -14,6 +14,14 @@ const registrationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    paymentStatus: {
+      type: String,
+      enum: ["pending", "paid", "waived"],
+      default: "pending"
+    },
+    paymentReference: {
+      type: String,
+    },
     registeredAt: {
       type: Date,
       default: Date.now,

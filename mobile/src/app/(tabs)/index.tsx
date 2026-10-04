@@ -42,7 +42,7 @@ export default function HomeScreen() {
   const renderItem = ({ item }: { item: Competition }) => (
     <Pressable
       style={styles.card}
-      onPress={() => router.push(`/competition/${item._id}`)}
+      onPress={() => router.push({ pathname: "/competition/[id]", params: { id: item._id } })}
     >
       <Text style={styles.title}>{item.title}</Text>
       <Text style={styles.description} numberOfLines={2}>

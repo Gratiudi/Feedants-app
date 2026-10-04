@@ -154,7 +154,7 @@ export default function CompetitionDetailScreen() {
       return;
     }
 
-    if (buttonText === 'Register') {
+    if (buttonText === 'Pay & Register') {
       try {
         setLoading(true);
         const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/register`, {
@@ -165,10 +165,16 @@ export default function CompetitionDetailScreen() {
           },
           body: JSON.stringify({})
         });
-        if (!res.ok) {
+        
+        if (!res.ok && res.status !== 409) {
           const err = await res.json();
           Platform.OS === 'web' ? window.alert(err.message) : Alert.alert('Error', err.message || 'Registration failed');
+          return;
         }
+
+        // Simulate short loading for the demo payment experience
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
         await fetchCompetition();
       } catch (error) {
         Platform.OS === 'web' ? window.alert('Unable to register') : Alert.alert('Error', 'Unable to register');
