@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import { useAuth } from "@/context/AuthContext";
 
 type Competition = {
   _id: string;
@@ -21,6 +22,7 @@ type Competition = {
 export default function HomeScreen() {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     const fetchCompetitions = async () => {
@@ -50,7 +52,7 @@ export default function HomeScreen() {
       </Text>
       <View style={styles.footer}>
         <Text style={styles.prizePool}>
-          ₹ {item.prizePool?.toLocaleString("en-IN")}
+          {item.prizePool?.toLocaleString()} ETB
         </Text>
         <Text style={styles.actionText}>View Details →</Text>
       </View>
@@ -60,7 +62,21 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <Text style={styles.headerTitle}>Feedants Competitions</Text>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Feedants</Text>
+            {user && (
+              <Text style={styles.welcomeText}>
+                Welcome, <Text style={styles.userName}>{user.name}</Text>
+              </Text>
+            )}
+          </View>
+          {user && (
+            <Pressable style={styles.logoutBtn} onPress={logout}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </Pressable>
+          )}
+        </View>
         
         {loading ? (
           <View style={styles.loaderWrap}>
@@ -87,13 +103,40 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: 18,
+    marginTop: 10,
+    marginBottom: 20,
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: "800",
     color: "#0d1b2a",
-    marginHorizontal: 18,
-    marginTop: 10,
-    marginBottom: 20,
+  },
+  welcomeText: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 2,
+  },
+  userName: {
+    fontWeight: "700",
+    color: "#0f766e",
+  },
+  logoutBtn: {
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  logoutText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#ef4444",
   },
   loaderWrap: {
     flex: 1,

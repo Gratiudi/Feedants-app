@@ -58,8 +58,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const storedUser = await getStorageItemAsync('user');
         
         if (storedToken && storedUser) {
-          setToken(storedToken);
-          setUser(JSON.parse(storedUser));
+          // Check if token has expired
+          let isExpired = false;
+          try {
+            const parts = storedToken.split('.');
+            if (parts.length === 3) {
+              const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+              const jsonPayload = decodeURIComponent(
+                atob(base64)
+                  .split('')
+                  .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                  .join('')
+              );
+              const payload = JSON.parse(jsonPayload);
+              if (payload.exp && Date.now() >= payload.exp * 1000) {
+                isExpired = true;
+              }
+            }
+          } catch {
+            // If decoding fails, treat token as invalid
+            isExpired = true;
+          }
+
+          if (isExpired) {
+            await deleteStorageItemAsync('token');
+            await deleteStorageItemAsync('user');
+            setToken(null);
+            setUser(null);
+          } else {
+            setToken(storedToken);
+            setUser(JSON.parse(storedUser));
+          }
         }
       } catch (error) {
         console.error('Failed to load auth state', error);

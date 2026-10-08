@@ -48,57 +48,54 @@ type Competition = {
 
 const fallbackCompetition: Competition = {
   _id: "fallback",
-  title: "Feedants Classical Dance",
+  title: "Addis Ethio-Jazz & Acoustic Innovation Cup",
   description:
-    "This is an online classical dance competition open for all age groups. Participate from anywhere and showcase your talent. Express your passion through traditional dance.",
-  tags: ["Dance", "Multi-Win", "Winners get certificate"],
-  prizePool: 1500,
-  entryFee: 99,
-  totalSpots: 20,
-  spotsBooked: 1,
+    "An open competition celebrating original compositions and acoustic arrangements blending African modalities, jazz improvisation, and global rhythms.",
+  tags: ["Music", "Ethio-Jazz", "Acoustic", "Live Performance"],
+  prizePool: 350000,
+  entryFee: 500,
+  totalSpots: 30,
+  spotsBooked: 12,
   judgeId: {
-    name: "Manju Dubey",
-    title: "Professional Kathak Dancer",
-    yearsOfExperience: 12,
+    name: "Mulatu Astatke",
+    title: "Master of Ethio-Jazz & Composer",
+    yearsOfExperience: 40,
     photoUrl: "",
   },
-  registerBefore: "2026-08-10T23:55:00.000Z",
-  submissionStart: "2026-08-06T04:00:00.000Z",
-  submissionEnd: "2026-08-30T11:55:00.000Z",
-  resultDate: "2026-09-01T23:55:00.000Z",
+  registerBefore: "2026-11-15T23:55:00.000Z",
+  submissionStart: "2026-10-20T04:00:00.000Z",
+  submissionEnd: "2026-11-25T11:55:00.000Z",
+  resultDate: "2026-12-05T23:55:00.000Z",
   rewards: [
-    { position: 1, amount: 550 },
-    { position: 2, amount: 300 },
-    { position: 3, amount: 240 },
-    { position: 4, amount: 200 },
-    { position: 5, amount: 130 },
-    { position: 6, amount: 80 },
+    { position: 1, amount: 200000 },
+    { position: 2, amount: 100000 },
+    { position: 3, amount: 50000 },
   ],
-  judgingParameters: "Technique, expression, rhythm, stage presence.",
+  judgingParameters: "Composition originality, modal harmony, rhythmic groove, live dynamics.",
   rulesAndEligibility:
-    "Open to all. Participants must be registered and submit original performances.",
-  refundPolicy: "Refunds are available only before registration closes.",
+    "Open to all registered performers globally. Submissions must feature original instrumentation or unique arrangements.",
+  refundPolicy: "Full refund available up to 72 hours before registration deadline.",
 };
 
 const winnerCards: Winner[] = [
-  { name: "Riya Shah", position: "1st Winner", color: "#8d4dff" },
-  { name: "Aarav Mehta", position: "1st Winner", color: "#f59e0b" },
-  { name: "Neha Verma", position: "2nd Winner", color: "#34d399" },
-  { name: "Ishita Chou", position: "3rd Winner", color: "#f87171" },
+  { name: "Abebe Bekele", position: "1st Winner", color: "#8d4dff" },
+  { name: "Helina Tadesse", position: "2nd Winner", color: "#f59e0b" },
+  { name: "Yohannes Hailu", position: "3rd Winner", color: "#34d399" },
+  { name: "Selamawit Desta", position: "Finalist", color: "#f87171" },
 ];
 
 function formatCurrency(value?: number) {
   const amount = value ?? 0;
-  return `₹ ${amount.toLocaleString("en-IN")}`;
+  return `${amount.toLocaleString()} ETB`;
 }
 
 function formatDateLabel(dateString?: string) {
   if (!dateString) return "TBD";
   const date = new Date(dateString);
-  return date.toLocaleDateString("en-IN", {
+  return date.toLocaleDateString("en-US", {
     day: "numeric",
     month: "short",
-    year: "2-digit",
+    year: "numeric",
   });
 }
 
@@ -117,7 +114,7 @@ export default function CompetitionDetailScreen() {
     useState<Competition>(fallbackCompetition);
   const [loading, setLoading] = useState(true);
   const [buttonText, setButtonText] = useState('Register');
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
 
   const fetchCompetition = async () => {
     try {
@@ -129,6 +126,10 @@ export default function CompetitionDetailScreen() {
           const stateRes = await fetch(`http://localhost:5000/api/competitions/${data._id}/state`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
+          if (stateRes.status === 401) {
+            await logout();
+            return;
+          }
           const stateData = await stateRes.json();
           if (stateRes.ok) {
             setButtonText(stateData.buttonText || 'Register');
@@ -167,8 +168,14 @@ export default function CompetitionDetailScreen() {
         });
         
         if (!res.ok && res.status !== 409) {
-          const err = await res.json();
-          Platform.OS === 'web' ? window.alert(err.message) : Alert.alert('Error', err.message || 'Registration failed');
+          if (res.status === 401) {
+            await logout();
+            const msg = 'Your session has expired or is invalid. Please log in again.';
+            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Session Expired', msg);
+            return;
+          }
+          const err = await res.json().catch(() => ({}));
+          Platform.OS === 'web' ? window.alert(err.message || 'Registration failed') : Alert.alert('Error', err.message || 'Registration failed');
           return;
         }
 
@@ -229,7 +236,13 @@ export default function CompetitionDetailScreen() {
         });
         
         if (!res.ok) {
-          const err = await res.json();
+          if (res.status === 401) {
+            await logout();
+            const msg = 'Your session has expired or is invalid. Please log in again.';
+            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Session Expired', msg);
+            return;
+          }
+          const err = await res.json().catch(() => ({}));
           throw new Error(err.message || 'Database Submission Failed');
         }
 
@@ -244,9 +257,9 @@ export default function CompetitionDetailScreen() {
   };
 
   const rewardRows = competition.rewards ?? fallbackCompetition.rewards ?? [];
-  const judgeName = competition.judgeId?.name ?? "Manju Dubey";
-  const judgeTitle = competition.judgeId?.title ?? "Professional Kathak Dancer";
-  const judgeYears = competition.judgeId?.yearsOfExperience ?? 12;
+  const judgeName = competition.judgeId?.name ?? "Mulatu Astatke";
+  const judgeTitle = competition.judgeId?.title ?? "Master of Ethio-Jazz & Composer";
+  const judgeYears = competition.judgeId?.yearsOfExperience ?? 40;
 
   return (
     <View style={styles.container}>

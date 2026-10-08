@@ -1,198 +1,158 @@
-# Feedants Competition Details — Schema & State Design
+# Feedants — Comprehensive Competition & Talent Showcase Platform
 
-## MVP assumptions and scope
-
-This project is built as a pragmatic MVP for a competition platform, not a full production admin system.
-
-- Competition browsing and detail pages are in scope.
-- Registration and submission flows are in scope.
-- Result display is in scope.
-- A dedicated admin dashboard is not built out here; instead, a lightweight results endpoint is exposed for manual winner upload with an `X-Admin-Secret` header.
-- Real auth is intentionally out of scope for this version. In production, this would be replaced with proper judge/admin role-based authentication.
-- File uploads are represented as `fileUrl` / `mediaUrl` strings for the assignment. For a production deployment, a storage solution such as Cloudinary or local disk storage can be added.
-
-## Entities: Competition, Judge, User, Registration, Submission, Result
+Feedants is a full-stack, cross-platform competition ecosystem designed for performers, artists, and creators. It allows participants to discover competitions, register, submit performance media, and track results, while providing organizers with a centralized administrative dashboard.
 
 ---
 
-## Judge
-Separate entity since judges are likely reused across multiple competitions.
+## 🏛 Architecture & Project Structure
 
-Fields:
-- name
-- title
-- bio
-- photoUrl
-- introVideoUrl
-- yearsOfExperience
-- createdAt / updatedAt
+The project is organized as a **monorepo** consisting of three core applications:
 
----
-
-## Competition
-Represents a single competition (e.g. "Feedants Classical Dance").
-
-Fields:
-- title
-- description
-- tags: []  (e.g. ["Dance", "Multi-Win"])
-- judgeId (ref to Judge)
-- prizePool
-- entryFee
-- totalSpots
-- spotsBooked            // incremented atomically on registration
-- registerBefore
-- submissionStart
-- submissionEnd
-- resultDate
-- rewards: [{ position, amount }]
-- judgingParameters
-- rulesAndEligibility
-- refundPolicy
-- createdAt / updatedAt   // audit/bookkeeping only — not shown in UI directly;
-                          // useful for sorting/debugging (e.g. "newest competitions first")
-
-### Computed (not stored) — derived per request from date fields:
-A plain function runs on every read, using the current server time. Nothing
-is persisted — this guarantees status is always accurate and never drifts
-out of sync (a stored "status" field could go stale under concurrent load).
-
-```js
-function deriveCompetitionStatus(competition, now = new Date()) {
-  const registrationStatus =
-    now <= competition.registerBefore && competition.spotsBooked < competition.totalSpots
-      ? 'open'
-      : 'closed';
-
-  const submissionStatus =
-    now < competition.submissionStart ? 'not_started'
-    : now <= competition.submissionEnd ? 'open'
-    : 'closed';
-
-  return { registrationStatus, submissionStatus };
-}
+```text
+feedant-app/
+├── backend/          # Node.js / Express REST API with MongoDB Atlas
+├── mobile/           # React Native (Expo) cross-platform app (iOS, Android, Web)
+├── admin-web/        # React + TypeScript + Vite administrative dashboard
+└── README.md
 ```
 
-Registration and submission windows can overlap (per design: submissions
-start Aug 6, registration closes Aug 10) — tracked as two independent
-flags, not one linear competition-wide state.
+### 1. `backend/` (Core API Engine)
+- **Runtime**: Node.js & Express.
+- **Database**: MongoDB Atlas via Mongoose.
+- **Authentication**: JWT (JSON Web Tokens) with `bcryptjs` password hashing and role-based access control (`user` vs `admin`).
+- **Dynamic State Computation**: Evaluates registration windows, submission deadlines, and results dynamically per request to prevent database state drift.
+- **Concurrency Protection**: Uses atomic conditional updates (`findOneAndUpdate` with `$inc`) to guarantee spots are never overbooked.
+- **Payments**: Integrated payment architecture ready for Chapa / online gateways.
 
-resultStatus ("pending" | "announced") is derived by checking whether a
-Result document exists for this competition AND now >= resultDate.
+### 2. `mobile/` (Participant Application)
+- **Framework**: Expo Router (React Native) supporting iOS, Android, and Web.
+- **Features**:
+  - Live competition browsing with Ethiopian Birr (ETB) & international currency formatting.
+  - Rich competition detail screens with jury profiles, judging criteria, and prize tiers.
+  - Dynamic action CTA button driven by server state:
+    - `Pay & Register`
+    - `Submission opens soon`
+    - `Upload Submission` (Cloudinary media upload)
+    - `Submitted — Registered`
+    - `Awaiting Results`
+    - `View Results`
+  - Integrated User Profile header and one-click Logout / Session refresh.
+
+### 3. `admin-web/` (Organizer & Judge Dashboard)
+- **Framework**: React 19, TypeScript, and Vite.
+- **Features**:
+  - Secure Admin authentication with role validation.
+  - Real-time competition creation and spots monitoring.
+  - Winner designation and result publishing.
 
 ---
 
-## User
-- name, email, phone, photoUrl
-- referralCode
+## 🚀 Quick Start & Local Setup
+
+### Prerequisites
+- Node.js 18+ and npm
+- A MongoDB connection string (local or MongoDB Atlas)
 
 ---
 
-## Registration
-Join table: one per (user, competition).
-- userId
-- competitionId
-- registeredAt
-- **unique compound index on (userId, competitionId)** — prevents duplicate registration
+### Step 1: Backend Setup
 
-### Per-user derived state
-Not a field on User or Registration — computed as a function of
-(userId, competitionId), sourced by querying Registration, Submission,
-and Result together:
-
-```js
-async function getUserCompetitionState(userId, competitionId) {
-  const registration = await Registration.findOne({ userId, competitionId });
-  if (!registration) return { registrationStatus: 'not_registered' };
-
-  const submission = await Submission.findOne({ userId, competitionId });
-  const submissionStatus = submission ? 'submitted' : 'not_submitted';
-
-  let resultStatus = 'pending';
-  const won = await Result.findOne({ competitionId, 'winners.userId': userId });
-  if (won) resultStatus = 'won';
-  else {
-    const announced = await Result.findOne({ competitionId });
-    if (announced) resultStatus = 'lost';
-  }
-
-  return { registrationStatus: 'registered', submissionStatus, resultStatus };
-}
+```bash
+cd backend
+npm install
 ```
 
-These three flags are independent, not a single enum — avoids invalid
-combinations like "won" + "not_submitted".
-
----
-
-## Submission
-- userId
-- registrationId
-- competitionId   // denormalized from Registration for fast indexed lookups
-                   // (e.g. "all submissions for competition X" is a hot query
-                   // for judges/admins — avoids a join through Registration
-                   // at scale). Deliberate trade-off, noted here explicitly.
-- fileUrl / mediaUrl
-- submittedAt
-
-### Validation
-Not a schema property — enforced in the request handler at submission time:
-
-```js
-async function handleSubmission(req, res) {
-  const { userId, competitionId } = req.body;
-  const competition = await Competition.findById(competitionId);
-  const { submissionStatus } = deriveCompetitionStatus(competition);
-
-  if (submissionStatus !== 'open') return res.status(400).json({ error: 'Submissions closed' });
-
-  const registration = await Registration.findOne({ userId, competitionId });
-  if (!registration) return res.status(403).json({ error: 'Not registered' });
-
-  // proceed to create Submission doc
-}
+Create or verify `backend/.env`:
+```env
+MONGODB_URI=your_mongodb_connection_string
+PORT=5000
+ADMIN_SECRET=dev-admin-secret
+JWT_SECRET=super-secret-dev-jwt-key-2026
+CHAPA_SECRET_KEY=CHASECK_TEST_placeholder
 ```
 
----
-
-## Result
-- competitionId
-- winners: [{ userId, position, prizeAwarded }]
-- announcedAt
-
-### How winners are assigned
-Judging is subjective (a dance video, not a scorable metric) — no automated
-scoring exists in this design. Assumption: an admin/organizer submits the
-final ranked list via an admin-only endpoint (e.g. `POST /competitions/:id/results`)
-once offline judging is complete, typically around resultDate. This creates
-the Result document; the frontend shows results once
-`now >= resultDate AND a Result doc exists for that competition`.
-
----
-
-## Bottom CTA button — derived from the flags above
-| registrationStatus | submissionStatus (window) | user submitted? | resultStatus | Button shows |
-|---|---|---|---|---|
-| open | — | — | — | "Register" |
-| closed, not registered | — | — | — | "Registration Closed" |
-| registered | not_started | — | — | "Submission opens soon" |
-| registered | open | not submitted | — | "Upload Submission" |
-| registered | open | submitted | — | "Submitted — Registered" |
-| registered | closed | — | pending | "Awaiting Results" |
-| registered | closed | — | announced | "View Results" (Won/Lost) |
-
----
-
-## Concurrency note
-Spot booking uses an atomic conditional update to prevent overbooking under
-concurrent registration requests:
-
-```js
-Competition.findOneAndUpdate(
-  { _id, spotsBooked: { $lt: totalSpots } },
-  { $inc: { spotsBooked: 1 } },
-  { new: true }
-)
+#### Seed the Database
+Populate Ethiopian & International competitions and judges:
+```bash
+npm run seed
 ```
 
-If it returns null, spots are full and the request is rejected.
+#### Start Backend Server
+```bash
+npm run dev
+```
+The API server will run at `http://localhost:5000`.
+
+---
+
+### Step 2: Mobile App Setup (Expo)
+
+```bash
+cd ../mobile
+npm install
+npx expo start
+```
+- Press **`w`** to open in your web browser.
+- Scan the QR code with **Expo Go** on Android/iOS to run on a physical device.
+
+---
+
+### Step 3: Admin Web Dashboard Setup (Vite)
+
+```bash
+cd ../admin-web
+npm install
+npm run dev
+```
+Open `http://localhost:5173` to access the administrator panel.
+
+---
+
+## 📡 API Endpoints
+
+### Authentication (`/api/auth`)
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Register a new user account | No |
+| `POST` | `/api/auth/login` | Log in and receive JWT token | No |
+
+### Competitions (`/api/competitions`)
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/competitions` | List all competitions sorted by date | No |
+| `GET` | `/api/competitions/:id` | Get details of a single competition | No |
+| `GET` | `/api/competitions/:id/state` | Get current user's state & dynamic button CTA | Optional JWT |
+| `POST` | `/api/competitions` | Create a new competition | Admin (`role: admin`) |
+| `POST` | `/api/competitions/:id/register` | Atomically reserve a spot & register user | User JWT |
+| `POST` | `/api/competitions/:id/submissions`| Submit performance media URL | User JWT |
+| `POST` | `/api/competitions/:id/results` | Announce winners & publish results | Admin |
+
+### Health Check
+- `GET /health` — Returns `{ "status": "ok" }`.
+
+---
+
+## 🔄 Dynamic Competition & User State Engine
+
+Instead of relying on fragile cron jobs to toggle database status fields, competition states are computed at request time:
+
+$$\text{Registration} = \begin{cases} \text{open} & \text{if } \text{now} \le \text{registerBefore} \text{ and } \text{spotsBooked} < \text{totalSpots} \\ \text{closed} & \text{otherwise} \end{cases}$$
+
+$$\text{Submission} = \begin{cases} \text{not\_started} & \text{if } \text{now} < \text{submissionStart} \\ \text{open} & \text{if } \text{submissionStart} \le \text{now} \le \text{submissionEnd} \\ \text{closed} & \text{if } \text{now} > \text{submissionEnd} \end{cases}$$
+
+This ensures registration status is always 100% accurate, even during high concurrency or timezone variations.
+
+---
+
+## 🛡 Security & Concurrency
+
+1. **Spot Overbooking Protection**:
+   ```javascript
+   Competition.findOneAndUpdate(
+     { _id: competitionId, spotsBooked: { $lt: competition.totalSpots } },
+     { $inc: { spotsBooked: 1 } },
+     { new: true }
+   );
+   ```
+2. **Password Security**: Passwords are never stored in plaintext and are hashed using `bcryptjs` with salt factor 10. `passwordHash` is excluded from standard queries by default (`select: false`).
+3. **Role Enforcement**: Protected routes use the `requireAdmin` middleware to verify the user token's role claim before allowing destructive operations.
