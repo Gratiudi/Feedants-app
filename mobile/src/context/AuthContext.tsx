@@ -21,6 +21,30 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export const useAuth = () => useContext(AuthContext);
 
+// Safe base64 decoder for React Native Hermes & Web
+function safeDecodeBase64(str: string): string {
+  try {
+    if (typeof atob === 'function') {
+      return atob(str);
+    }
+  } catch {
+    // fallback to manual decode below
+  }
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let output = '';
+  str = String(str).replace(/=+$/, '');
+  for (
+    let bc = 0, bs = 0, buffer, idx = 0;
+    (buffer = str.charAt(idx++));
+    ~buffer && ((bs = bc % 4 ? bs * 64 + buffer : buffer), bc++ % 4)
+      ? (output += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6))))
+      : 0
+  ) {
+    buffer = chars.indexOf(buffer);
+  }
+  return output;
+}
+
 // Utility to handle web vs native storage safely
 const setStorageItemAsync = async (key: string, value: string) => {
   if (Platform.OS === 'web') {
@@ -58,14 +82,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const storedUser = await getStorageItemAsync('user');
         
         if (storedToken && storedUser) {
-          // Check if token has expired
           let isExpired = false;
           try {
             const parts = storedToken.split('.');
             if (parts.length === 3) {
               const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
               const jsonPayload = decodeURIComponent(
-                atob(base64)
+                safeDecodeBase64(base64)
                   .split('')
                   .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
                   .join('')
@@ -76,8 +99,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               }
             }
           } catch {
-            // If decoding fails, treat token as invalid
-            isExpired = true;
+            // Keep existing credentials if parse fails
+            isExpired = false;
           }
 
           if (isExpired) {

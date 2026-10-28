@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
+import { API_BASE_URL } from "@/config/api";
 
 type Competition = {
   _id: string;
@@ -24,10 +28,27 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const { user, logout } = useAuth();
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      if (Platform.OS === 'web') {
+        window.alert('You have been logged out successfully.');
+      } else {
+        Alert.alert('Logged Out', 'You have been logged out successfully.');
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  const handleLogin = () => {
+    router.push('/auth/login');
+  };
+
   useEffect(() => {
     const fetchCompetitions = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/competitions");
+        const response = await fetch(`${API_BASE_URL}/api/competitions`);
         const data = await response.json();
         if (Array.isArray(data)) {
           setCompetitions(data);
@@ -65,16 +86,32 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Feedants</Text>
-            {user && (
+            {user ? (
               <Text style={styles.welcomeText}>
                 Welcome, <Text style={styles.userName}>{user.name}</Text>
               </Text>
+            ) : (
+              <Text style={styles.welcomeText}>Explore talent competitions</Text>
             )}
           </View>
-          {user && (
-            <Pressable style={styles.logoutBtn} onPress={logout}>
+          {user ? (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={styles.logoutBtn}
+              onPress={handleLogout}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <Text style={styles.logoutText}>Logout</Text>
-            </Pressable>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={styles.loginBtn}
+              onPress={handleLogin}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.loginBtnText}>Log In</Text>
+            </TouchableOpacity>
           )}
         </View>
         
@@ -110,6 +147,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 18,
     marginTop: 10,
     marginBottom: 20,
+    zIndex: 50,
   },
   headerTitle: {
     fontSize: 28,
@@ -132,11 +170,26 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#e2e8f0",
+    zIndex: 60,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
   },
   logoutText: {
     fontSize: 13,
     fontWeight: "600",
     color: "#ef4444",
+  },
+  loginBtn: {
+    backgroundColor: "#0fb5a8",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    zIndex: 60,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+  },
+  loginBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#ffffff",
   },
   loaderWrap: {
     flex: 1,

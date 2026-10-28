@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { API_BASE_URL } from '@/config/api';
 
-export default function LoginScreen() {
+type LoginScreenProps = {
+  onContinueAsGuest?: () => void;
+};
+
+export default function LoginScreen({ onContinueAsGuest }: LoginScreenProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -12,6 +18,16 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   
   const { login } = useAuth();
+
+  const handleClose = () => {
+    if (onContinueAsGuest) {
+      onContinueAsGuest();
+    } else if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)');
+    }
+  };
 
   const handleSubmit = async () => {
     if (!email || !password || (!isLogin && (!name || !phone))) {
@@ -27,7 +43,7 @@ export default function LoginScreen() {
         ? { email, password } 
         : { name, email, phone, password };
 
-      const res = await fetch(`http://localhost:5000${endpoint}`, {
+      const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -40,6 +56,7 @@ export default function LoginScreen() {
       }
 
       await login(data.token, data.user);
+      handleClose();
     } catch (error: any) {
       Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
     } finally {
@@ -50,7 +67,15 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.formContainer}>
-        <Text style={styles.title}>{isLogin ? 'Welcome Back' : 'Create Account'}</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>{isLogin ? 'Welcome to Feedants' : 'Create Account'}</Text>
+          <Pressable onPress={handleClose} style={styles.closeBtn}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.subtitle}>
+          {isLogin ? 'Log in to register and submit your performances' : 'Join Feedants to compete and win prizes'}
+        </Text>
         
         {!isLogin && (
           <>
@@ -99,6 +124,10 @@ export default function LoginScreen() {
             {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Log In"}
           </Text>
         </Pressable>
+
+        <Pressable onPress={handleClose} style={styles.guestButton}>
+          <Text style={styles.guestText}>Continue Browsing as Guest →</Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -120,12 +149,29 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 5,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  closeBtn: {
+    padding: 6,
+  },
+  closeBtnText: {
+    fontSize: 18,
+    color: '#94a3b8',
+    fontWeight: '700',
+  },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     color: '#0d1b2a',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: '#64748b',
     marginBottom: 20,
-    textAlign: 'center',
   },
   input: {
     backgroundColor: '#f4fbfb',
@@ -148,12 +194,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   switchButton: {
-    marginTop: 20,
+    marginTop: 16,
     alignItems: 'center',
   },
   switchText: {
     color: '#0fb5a8',
     fontSize: 14,
     fontWeight: '600',
+  },
+  guestButton: {
+    marginTop: 14,
+    alignItems: 'center',
+  },
+  guestText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '500',
   },
 });

@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/context/AuthContext';
 import { useLocalSearchParams, router } from 'expo-router';
+import { API_BASE_URL } from '@/config/api';
 
 
 type Winner = {
@@ -114,16 +115,16 @@ export default function CompetitionDetailScreen() {
     useState<Competition>(fallbackCompetition);
   const [loading, setLoading] = useState(true);
   const [buttonText, setButtonText] = useState('Register');
-  const { token, logout } = useAuth();
+  const { token, logout, setGuest } = useAuth();
 
   const fetchCompetition = async () => {
     try {
-      const response = await fetch(`http://localhost:5000/api/competitions/${id}`);
+      const response = await fetch(`${API_BASE_URL}/api/competitions/${id}`);
       const data = await response.json();
       if (response.ok) {
         setCompetition(data);
         if (token) {
-          const stateRes = await fetch(`http://localhost:5000/api/competitions/${data._id}/state`, {
+          const stateRes = await fetch(`${API_BASE_URL}/api/competitions/${data._id}/state`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           if (stateRes.status === 401) {
@@ -151,14 +152,14 @@ export default function CompetitionDetailScreen() {
 
   const handleAction = async () => {
     if (!token) {
-      Platform.OS === 'web' ? window.alert('Please log in first') : Alert.alert('Error', 'Please log in first');
+      setGuest(false);
       return;
     }
 
     if (buttonText === 'Pay & Register') {
       try {
         setLoading(true);
-        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/register`, {
+        const res = await fetch(`${API_BASE_URL}/api/competitions/${competition._id}/register`, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
@@ -226,7 +227,7 @@ export default function CompetitionDetailScreen() {
 
         const secureVideoUrl = cloudinaryData.secure_url;
 
-        const res = await fetch(`http://localhost:5000/api/competitions/${competition._id}/submissions`, {
+        const res = await fetch(`${API_BASE_URL}/api/competitions/${competition._id}/submissions`, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',

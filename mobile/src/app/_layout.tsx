@@ -4,24 +4,28 @@ import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import LoginScreen from '@/components/LoginScreen';
 
 SplashScreen.preventAutoHideAsync();
 
 function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
   
   if (loading) {
     return null; // The splash screen handles the visual loading state
   }
   
-  return user ? (
+  return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="competition/[id]" />
+      <Stack.Screen 
+        name="auth/login" 
+        options={{ 
+          presentation: 'modal', 
+          headerShown: false 
+        }} 
+      />
     </Stack>
-  ) : (
-    <LoginScreen />
   );
 }
 
