@@ -1,222 +1,89 @@
-import { useState } from 'react';
+import { useState } from 'react'
 
-// ──────────────────────────────────────────────────────────────
-// STEP 1: Define the shape of the props this component accepts.
-// The parent component (App.tsx) will pass an "onLogin" callback
-// so that after a successful login, we can hand the JWT token
-// back up to the parent to store and use for future API calls.
-// ──────────────────────────────────────────────────────────────
 interface LoginProps {
-  onLogin: (token: string) => void;
+  onLogin: (token: string) => boolean
+  initialMessage?: string
 }
 
-// ──────────────────────────────────────────────────────────────
-// STEP 2: Define the backend URL as a constant.
-// During development, the Express backend runs on port 5000.
-// In production, you'd swap this for an environment variable.
-// ──────────────────────────────────────────────────────────────
-const API_URL = 'http://localhost:5000';
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '')
 
-export default function Login({ onLogin }: LoginProps) {
-  // ────────────────────────────────────────────────────────────
-  // STEP 3: Create state variables for the form.
-  // - email & password: the user's input
-  // - loading: disables the button while the request is in flight
-  // - error: stores any error message from the backend
-  // ────────────────────────────────────────────────────────────
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+export default function Login({ onLogin, initialMessage = '' }: LoginProps) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(initialMessage)
 
-  // ────────────────────────────────────────────────────────────
-  // STEP 4: The form submission handler.
-  // This is an async function because we need to "await" the
-  // network request to the backend.
-  // ────────────────────────────────────────────────────────────
-  const handleSubmit = async (e: React.SyntheticEvent) => {
-    // Prevent the browser from refreshing the page on form submit
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setLoading(true)
     try {
-      // ──────────────────────────────────────────────────────────
-      // STEP 5: Make a POST request to the backend login endpoint.
-      // This is the EXACT same endpoint the mobile app uses.
-      // We send JSON with { email, password } in the body.
-      // The backend responds with { token, user } on success.
-      // ──────────────────────────────────────────────────────────
-      const res = await fetch(`${API_URL}/api/auth/login`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-
-      // ──────────────────────────────────────────────────────────
-      // STEP 6: Handle errors from the backend.
-      // If res.ok is false, the backend returned 401 or 400,
-      // meaning invalid credentials or missing fields.
-      // ──────────────────────────────────────────────────────────
-      if (!res.ok) {
-        setError(data.message || 'Login failed');
-        return;
+        body: JSON.stringify({ email: email.trim(), password }),
+      })
+      const data = await response.json() as { message?: string; token?: string; user?: { role?: string } }
+      if (!response.ok) throw new Error(data.message || 'Sign-in failed. Check your credentials and try again.')
+      if (data.user?.role !== 'admin' || !data.token) {
+        setError('This account does not have organizer access.')
+        return
       }
-
-      // ──────────────────────────────────────────────────────────
-      // STEP 7: Check that the user is an admin.
-      // Regular competitors should NOT be able to access the
-      // admin dashboard. We check the role from the response.
-      // ──────────────────────────────────────────────────────────
-      if (data.user.role !== 'admin') {
-        setError('Access denied. Admin accounts only.');
-        return;
-      }
-
-      // ──────────────────────────────────────────────────────────
-      // STEP 8: Persist the token in localStorage.
-      // Unlike the mobile app (which uses expo-secure-store),
-      // web apps use localStorage. The token survives page
-      // refreshes so the admin stays logged in.
-      // ──────────────────────────────────────────────────────────
-      localStorage.setItem('token', data.token);
-
-      // ──────────────────────────────────────────────────────────
-      // STEP 9: Notify the parent component.
-      // Calling onLogin(token) tells App.tsx "we're logged in now,
-      // show the Dashboard instead of the Login screen."
-      // ──────────────────────────────────────────────────────────
-      onLogin(data.token);
-
-    } catch {
-      // Network error (backend not running, no internet, etc.)
-      setError('Unable to connect to server');
+      if (!onLogin(data.token)) setError('This browser could not save your session. Enable site storage and try again.')
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Unable to connect to the Feedants service.')
     } finally {
-      // Always stop the loading spinner, whether success or failure
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  // ────────────────────────────────────────────────────────────
-  // STEP 10: The JSX — a simple, clean login form.
-  // This is standard HTML: a <form> with two <input> fields
-  // and a <button>. No React Native here — just plain web HTML.
-  // ────────────────────────────────────────────────────────────
   return (
-    <div style={styles.wrapper}>
-      <form onSubmit={handleSubmit} style={styles.card}>
-        <h1 style={styles.title}>Feedants Admin</h1>
-        <p style={styles.subtitle}>Sign in to manage competitions</p>
-
-        {error && <div style={styles.errorBox}>{error}</div>}
-
-        <label style={styles.label}>Email</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="admin@feedants.com"
-          required
-          style={styles.input}
-        />
-
-        <label style={styles.label}>Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
-          required
-          style={styles.input}
-        />
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            ...styles.button,
-            opacity: loading ? 0.7 : 1,
-          }}
-        >
-          {loading ? 'Signing in...' : 'Sign In'}
-        </button>
-      </form>
-    </div>
-  );
+    <main className="login-page">
+      <div className="login-story">
+        <div className="brand-lockup login-brand">
+          <span className="brand-mark">f</span><span>feedants<span className="brand-product">STUDIO</span></span>
+        </div>
+        <div className="story-content">
+          <span className="story-kicker"><span /> ORGANIZER WORKSPACE</span>
+          <h1>Make room for the next great thing.</h1>
+          <p>One calm place to bring competitions, participants, and creative work together.</p>
+        </div>
+        <div className="story-footer"><span>Built for people who make space for talent.</span><span>01 — 03</span></div>
+      </div>
+      <section className="login-side">
+        <form className="login-card" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="mobile-login-brand"><span className="brand-mark">f</span><span>feedants studio</span></div>
+          <p className="eyebrow">WELCOME BACK</p>
+          <h2>Sign in to your workspace</h2>
+          <p className="login-description">Use your organizer account to continue.</p>
+          {error && <div className="login-error" role="alert">{error}</div>}
+          <label className="login-label" htmlFor="admin-email">Email address</label>
+          <input
+            id="admin-email"
+            className="login-input"
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@organization.com"
+            required
+          />
+          <div className="password-label-row"><label className="login-label" htmlFor="admin-password">Password</label></div>
+          <input
+            id="admin-password"
+            className="login-input"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+          <button className="login-submit" type="submit" disabled={loading}>
+            {loading ? <><span className="button-spinner" />Signing in…</> : <>Sign in <span>→</span></>}
+          </button>
+          <p className="login-footnote"><span className="secure-dot" />Protected organizer access</p>
+        </form>
+      </section>
+    </main>
+  )
 }
-
-// ──────────────────────────────────────────────────────────────
-// STEP 11: Inline styles.
-// On the web we use regular CSS properties (camelCase).
-// This keeps the component self-contained for now.
-// You can move these to a .css file later if you prefer.
-// ──────────────────────────────────────────────────────────────
-const styles: Record<string, React.CSSProperties> = {
-  wrapper: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0d1b2a 0%, #1b2d45 100%)',
-  },
-  card: {
-    background: '#ffffff',
-    borderRadius: 16,
-    padding: '40px 32px',
-    width: 380,
-    boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-  },
-  title: {
-    margin: 0,
-    fontSize: 28,
-    fontWeight: 800,
-    color: '#0d1b2a',
-    textAlign: 'center',
-  },
-  subtitle: {
-    margin: '8px 0 24px',
-    fontSize: 14,
-    color: '#64748b',
-    textAlign: 'center',
-  },
-  label: {
-    display: 'block',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#334155',
-    marginBottom: 6,
-    marginTop: 16,
-  },
-  input: {
-    width: '100%',
-    padding: '12px 14px',
-    borderRadius: 10,
-    border: '1px solid #e2e8f0',
-    fontSize: 14,
-    outline: 'none',
-    boxSizing: 'border-box',
-  },
-  button: {
-    width: '100%',
-    padding: '14px',
-    marginTop: 24,
-    borderRadius: 10,
-    border: 'none',
-    background: '#0f766e',
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  errorBox: {
-    background: '#fef2f2',
-    color: '#dc2626',
-    padding: '10px 14px',
-    borderRadius: 8,
-    fontSize: 13,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-};

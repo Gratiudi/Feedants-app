@@ -48,7 +48,7 @@ function safeDecodeBase64(str: string): string {
 // Utility to handle web vs native storage safely
 const setStorageItemAsync = async (key: string, value: string) => {
   if (Platform.OS === 'web') {
-    try { localStorage.setItem(key, value); } catch (e) { console.error('Local storage unavailable'); }
+    localStorage.setItem(key, value);
   } else {
     await SecureStore.setItemAsync(key, value);
   }
@@ -56,7 +56,7 @@ const setStorageItemAsync = async (key: string, value: string) => {
 
 const getStorageItemAsync = async (key: string) => {
   if (Platform.OS === 'web') {
-    try { return localStorage.getItem(key); } catch (e) { return null; }
+    return localStorage.getItem(key);
   } else {
     return await SecureStore.getItemAsync(key);
   }
@@ -64,7 +64,7 @@ const getStorageItemAsync = async (key: string) => {
 
 const deleteStorageItemAsync = async (key: string) => {
   if (Platform.OS === 'web') {
-    try { localStorage.removeItem(key); } catch (e) { console.error('Local storage unavailable'); }
+    localStorage.removeItem(key);
   } else {
     await SecureStore.deleteItemAsync(key);
   }
@@ -124,17 +124,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const login = async (newToken: string, newUser: User) => {
-    setToken(newToken);
-    setUser(newUser);
     await setStorageItemAsync('token', newToken);
     await setStorageItemAsync('user', JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
   };
 
   const logout = async () => {
-    setToken(null);
-    setUser(null);
     await deleteStorageItemAsync('token');
     await deleteStorageItemAsync('user');
+    setToken(null);
+    setUser(null);
   };
 
   return (

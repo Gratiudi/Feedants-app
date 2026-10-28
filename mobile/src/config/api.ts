@@ -1,8 +1,2 @@
-import { Platform } from 'react-native';
-
-// When running in the browser, localhost works.
-// On a physical phone (Expo Go), localhost refers to the phone itself,
-// so we point to your computer's local Wi-Fi IP address.
-export const API_BASE_URL = Platform.OS === 'web' 
-  ? 'http://localhost:5000' 
-  : 'http://192.168.8.180:5000';
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+export const API_BASE_URL = (configuredApiUrl || 'http://localhost:5000').replace(/\/+$/, '');

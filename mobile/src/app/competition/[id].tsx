@@ -1,25 +1,29 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   ActivityIndicator,
+  Image,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Platform,
-  Alert,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '@/context/AuthContext';
-import { useLocalSearchParams, router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
 import { API_BASE_URL } from '@/config/api';
+import { useAuth } from '@/context/AuthContext';
 
-
-type Winner = {
-  name: string;
-  position: string;
-  color: string;
+type Judge = {
+  name?: string;
+  title?: string;
+  bio?: string;
+  photoUrl?: string;
+  introVideoUrl?: string;
+  yearsOfExperience?: number;
 };
 
 type Competition = {
@@ -31,948 +35,552 @@ type Competition = {
   entryFee?: number;
   totalSpots?: number;
   spotsBooked?: number;
-  judgeId?: {
-    name?: string;
-    title?: string;
-    yearsOfExperience?: number;
-    photoUrl?: string;
-  };
+  judgeId?: Judge;
   registerBefore?: string;
   submissionStart?: string;
   submissionEnd?: string;
   resultDate?: string;
-  rewards?: Array<{ position: number; amount: number }>;
+  rewards?: { position: number; amount: number }[];
   judgingParameters?: string;
   rulesAndEligibility?: string;
   refundPolicy?: string;
 };
 
-const fallbackCompetition: Competition = {
-  _id: "fallback",
-  title: "Addis Ethio-Jazz & Acoustic Innovation Cup",
-  description:
-    "An open competition celebrating original compositions and acoustic arrangements blending African modalities, jazz improvisation, and global rhythms.",
-  tags: ["Music", "Ethio-Jazz", "Acoustic", "Live Performance"],
-  prizePool: 350000,
-  entryFee: 500,
-  totalSpots: 30,
-  spotsBooked: 12,
-  judgeId: {
-    name: "Mulatu Astatke",
-    title: "Master of Ethio-Jazz & Composer",
-    yearsOfExperience: 40,
-    photoUrl: "",
-  },
-  registerBefore: "2026-11-15T23:55:00.000Z",
-  submissionStart: "2026-10-20T04:00:00.000Z",
-  submissionEnd: "2026-11-25T11:55:00.000Z",
-  resultDate: "2026-12-05T23:55:00.000Z",
-  rewards: [
-    { position: 1, amount: 200000 },
-    { position: 2, amount: 100000 },
-    { position: 3, amount: 50000 },
-  ],
-  judgingParameters: "Composition originality, modal harmony, rhythmic groove, live dynamics.",
-  rulesAndEligibility:
-    "Open to all registered performers globally. Submissions must feature original instrumentation or unique arrangements.",
-  refundPolicy: "Full refund available up to 72 hours before registration deadline.",
+type Winner = {
+  userId: { name?: string } | string;
+  position: number;
+  prizeAwarded: number;
 };
 
-const winnerCards: Winner[] = [
-  { name: "Abebe Bekele", position: "1st Winner", color: "#8d4dff" },
-  { name: "Helina Tadesse", position: "2nd Winner", color: "#f59e0b" },
-  { name: "Yohannes Hailu", position: "3rd Winner", color: "#34d399" },
-  { name: "Selamawit Desta", position: "Finalist", color: "#f87171" },
-];
+type CompetitionResult = { winners: Winner[]; announcedAt?: string };
+type DetailTab = 'Overview' | 'Judging' | 'Guidelines';
+type CompetitionResponse = { competition: Competition; buttonText: string };
 
-function formatCurrency(value?: number) {
-  const amount = value ?? 0;
-  return `${amount.toLocaleString()} ETB`;
+const colors = {
+  ink: '#12231f',
+  muted: '#71817a',
+  green: '#176b53',
+  canvas: '#f5f7f2',
+  border: '#e4e9e2',
+  white: '#ffffff',
+};
+const cloudinaryCloudName = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME?.trim();
+const cloudinaryUploadPreset = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET?.trim();
+
+function money(amount?: number) {
+  return `${(amount ?? 0).toLocaleString()} ETB`;
 }
 
-function formatDateLabel(dateString?: string) {
-  if (!dateString) return "TBD";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+function dateLabel(value?: string) {
+  if (!value) return 'To be announced';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'To be announced'
+    : date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
 }
 
-function formatTime(dateString?: string) {
-  if (!dateString) return "TBD";
-  const date = new Date(dateString);
-  return date.toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+async function responseMessage(response: Response, fallback: string) {
+  try {
+    const body = await response.json();
+    return typeof body.message === 'string' ? body.message : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function fetchCompetitionData(id: string | undefined, token: string | null): Promise<CompetitionResponse> {
+  if (!id) throw new Error('This competition link is incomplete.');
+  const response = await fetch(`${API_BASE_URL}/api/competitions/${encodeURIComponent(id)}`);
+  if (!response.ok) {
+    throw new Error(await responseMessage(response, 'Unable to load this competition.'));
+  }
+  const competition: Competition = await response.json();
+  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+  const stateResponse = await fetch(
+    `${API_BASE_URL}/api/competitions/${encodeURIComponent(competition._id)}/state`,
+    { headers },
+  );
+  if (!stateResponse.ok) {
+    throw new Error(await responseMessage(stateResponse, 'Unable to load competition status.'));
+  }
+  const stateData: { buttonText?: string } = await stateResponse.json();
+  const buttonText = stateData.buttonText === 'Pay & Register' ? 'Register' : stateData.buttonText;
+  return { competition, buttonText: buttonText || 'Explore opportunity' };
 }
 
 export default function CompetitionDetailScreen() {
-  const { id } = useLocalSearchParams();
-  const [competition, setCompetition] =
-    useState<Competition>(fallbackCompetition);
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const { token } = useAuth();
+  const [competition, setCompetition] = useState<Competition | null>(null);
+  const [buttonText, setButtonText] = useState('Explore opportunity');
   const [loading, setLoading] = useState(true);
-  const [buttonText, setButtonText] = useState('Register');
-  const { token, logout, setGuest } = useAuth();
+  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<DetailTab>('Overview');
+  const [expanded, setExpanded] = useState(false);
+  const [processingRegistration, setProcessingRegistration] = useState(false);
+  const [processingUpload, setProcessingUpload] = useState(false);
+  const [actionMessage, setActionMessage] = useState('');
+  const [result, setResult] = useState<CompetitionResult | null>(null);
+  const [resultMessage, setResultMessage] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const [loadingResult, setLoadingResult] = useState(false);
 
-  const fetchCompetition = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/competitions/${id}`);
-      const data = await response.json();
-      if (response.ok) {
-        setCompetition(data);
-        if (token) {
-          const stateRes = await fetch(`${API_BASE_URL}/api/competitions/${data._id}/state`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (stateRes.status === 401) {
-            await logout();
-            return;
-          }
-          const stateData = await stateRes.json();
-          if (stateRes.ok) {
-            setButtonText(stateData.buttonText || 'Register');
-          }
+  useEffect(() => {
+    let active = true;
+    fetchCompetitionData(id, token)
+      .then(({ competition: item, buttonText: nextButtonText }) => {
+        if (active) {
+          setCompetition(item);
+          setButtonText(nextButtonText);
+          setError('');
         }
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : 'Unable to load this competition.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [id, token]);
+
+  const retryCompetition = () => {
+    setLoading(true);
+    setError('');
+    fetchCompetitionData(id, token)
+      .then(({ competition: item, buttonText: nextButtonText }) => {
+        setCompetition(item);
+        setButtonText(nextButtonText);
+      })
+      .catch((loadError: unknown) => {
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load this competition.');
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const tabs: DetailTab[] = ['Overview', 'Judging', 'Guidelines'];
+  const content = useMemo(() => {
+    if (!competition) return '';
+    if (activeTab === 'Judging') {
+      return competition.judgingParameters || 'Judging criteria will be announced by the organizers.';
+    }
+    if (activeTab === 'Guidelines') {
+      return competition.rulesAndEligibility || 'Eligibility and submission guidelines will be announced by the organizers.';
+    }
+    return competition.description || 'Competition details will be announced by the organizers.';
+  }, [activeTab, competition]);
+
+  const openResults = async () => {
+    if (!competition) return;
+    setShowResults(true);
+    setLoadingResult(true);
+    setResultMessage('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/competitions/${encodeURIComponent(competition._id)}/results`);
+      if (!response.ok) {
+        throw new Error(await responseMessage(response, 'Results are not available yet.'));
       }
-    } catch (error) {
-      console.error("Unable to load competition data", error);
+      setResult(await response.json());
+    } catch (resultError) {
+      setResult(null);
+      setResultMessage(resultError instanceof Error ? resultError.message : 'Unable to load results.');
     } finally {
-      setLoading(false);
+      setLoadingResult(false);
     }
   };
 
-  useEffect(() => {
-    if (id) {
-      void fetchCompetition();
+  const registerForCompetition = async () => {
+    if (!competition || !token) return;
+    setProcessingRegistration(true);
+    setActionMessage('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/competitions/${encodeURIComponent(competition._id)}/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await responseMessage(response, 'Unable to register for this competition.'));
+      }
+      setActionMessage('You are registered. No payment is collected.');
+      try {
+        const refreshed = await fetchCompetitionData(id, token);
+        setCompetition(refreshed.competition);
+        setButtonText(refreshed.buttonText);
+      } catch {
+        setButtonText('Registered');
+        setActionMessage('You are registered, but competition status could not be refreshed. Reopen this competition to continue.');
+      }
+    } catch (registrationError) {
+      setActionMessage(registrationError instanceof Error ? registrationError.message : 'Unable to register for this competition.');
+    } finally {
+      setProcessingRegistration(false);
     }
-  }, [id, token]);
+  };
 
-  const handleAction = async () => {
-    if (!token) {
-      setGuest(false);
+  const uploadSubmission = async () => {
+    if (!competition || !token) return;
+    setActionMessage('');
+    setProcessingUpload(true);
+    if (!cloudinaryCloudName || !cloudinaryUploadPreset) {
+      setActionMessage('Video uploads need Cloudinary settings. Set the public cloud name and unsigned upload preset in mobile/.env.');
+      setProcessingUpload(false);
       return;
     }
 
-    if (buttonText === 'Pay & Register') {
-      try {
-        setLoading(true);
-        const res = await fetch(`${API_BASE_URL}/api/competitions/${competition._id}/register`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` 
-          },
-          body: JSON.stringify({})
-        });
-        
-        if (!res.ok && res.status !== 409) {
-          if (res.status === 401) {
-            await logout();
-            const msg = 'Your session has expired or is invalid. Please log in again.';
-            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Session Expired', msg);
-            return;
-          }
-          const err = await res.json().catch(() => ({}));
-          Platform.OS === 'web' ? window.alert(err.message || 'Registration failed') : Alert.alert('Error', err.message || 'Registration failed');
-          return;
-        }
-
-        // Simulate short loading for the demo payment experience
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        await fetchCompetition();
-      } catch (error) {
-        Platform.OS === 'web' ? window.alert('Unable to register') : Alert.alert('Error', 'Unable to register');
-      } finally {
-        setLoading(false);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error('Allow photo library access to choose a performance video.');
       }
-    } else if (buttonText === 'Upload Submission') {
+
       const pickerResult = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['videos'],
-        allowsEditing: true,
         quality: 1,
+        videoMaxDuration: 600,
       });
-
       if (pickerResult.canceled) return;
-      
-      setLoading(true);
-      const videoUri = pickerResult.assets[0].uri;
-
-      try {
-        const data = new FormData();
-        if (Platform.OS === 'web') {
-          const fileRes = await fetch(videoUri);
-          const blob = await fileRes.blob();
-          data.append('file', blob, 'submission.mp4');
-        } else {
-          data.append('file', {
-            uri: videoUri,
-            type: 'video/mp4',
-            name: 'submission.mp4'
-          } as any);
-        }
-        data.append('upload_preset', 'avrzjqwo'); 
-        data.append('cloud_name', 'jtuedsvv'); 
-
-        const cloudinaryRes = await fetch('https://api.cloudinary.com/v1_1/jtuedsvv/video/upload', {
-          method: 'POST',
-          body: data,
-        });
-
-        const cloudinaryData = await cloudinaryRes.json();
-        if (!cloudinaryRes.ok) throw new Error('Cloudinary Upload Failed');
-
-        const secureVideoUrl = cloudinaryData.secure_url;
-
-        const res = await fetch(`${API_BASE_URL}/api/competitions/${competition._id}/submissions`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` 
-          },
-          body: JSON.stringify({ fileUrl: secureVideoUrl })
-        });
-        
-        if (!res.ok) {
-          if (res.status === 401) {
-            await logout();
-            const msg = 'Your session has expired or is invalid. Please log in again.';
-            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Session Expired', msg);
-            return;
-          }
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.message || 'Database Submission Failed');
-        }
-
-        Platform.OS === 'web' ? window.alert('Success! Your video has been submitted.') : Alert.alert('Success', 'Your video has been submitted!');
-        await fetchCompetition();
-      } catch (error: any) {
-        Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
-      } finally {
-        setLoading(false);
+      const asset = pickerResult.assets[0];
+      if (!asset) throw new Error('No video was selected.');
+      if (asset.fileSize && asset.fileSize > 100 * 1024 * 1024) {
+        throw new Error('Choose a video smaller than 100 MB.');
       }
+
+      const formData = new FormData();
+      if (Platform.OS === 'web') {
+        const fileResponse = await fetch(asset.uri);
+        if (!fileResponse.ok) throw new Error('Unable to read the selected video.');
+        const videoBlob = await fileResponse.blob();
+        formData.append('file', videoBlob, asset.fileName || 'performance-video.mp4');
+      } else {
+        formData.append('file', {
+          uri: asset.uri,
+          type: asset.mimeType || 'video/mp4',
+          name: asset.fileName || 'performance-video.mp4',
+        } as unknown as Blob);
+      }
+      formData.append('upload_preset', cloudinaryUploadPreset);
+
+      const cloudinaryResponse = await fetch(
+        `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryCloudName)}/video/upload`,
+        { method: 'POST', body: formData },
+      );
+      const uploadData: { secure_url?: string; error?: { message?: string } } = await cloudinaryResponse.json();
+      if (!cloudinaryResponse.ok || !uploadData.secure_url) {
+        throw new Error(uploadData.error?.message || 'Cloudinary could not upload this video.');
+      }
+
+      const submissionResponse = await fetch(`${API_BASE_URL}/api/competitions/${encodeURIComponent(competition._id)}/submissions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ fileUrl: uploadData.secure_url }),
+      });
+      if (!submissionResponse.ok) {
+        throw new Error(await responseMessage(submissionResponse, 'The video uploaded but could not be attached to this entry.'));
+      }
+
+      setActionMessage('Your performance was uploaded successfully.');
+      try {
+        const refreshed = await fetchCompetitionData(id, token);
+        setCompetition(refreshed.competition);
+        setButtonText(refreshed.buttonText);
+      } catch {
+        setButtonText('Submitted — Registered');
+        setActionMessage('Your performance was uploaded successfully. Competition status could not be refreshed.');
+      }
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : 'Unable to upload this performance.';
+      setActionMessage(message);
+      if (Platform.OS === 'web') window.alert(message);
+      else if (message !== 'Allow photo library access to choose a performance video.') Alert.alert('Upload failed', message);
+    } finally {
+      setProcessingUpload(false);
     }
   };
 
-  const rewardRows = competition.rewards ?? fallbackCompetition.rewards ?? [];
-  const judgeName = competition.judgeId?.name ?? "Mulatu Astatke";
-  const judgeTitle = competition.judgeId?.title ?? "Master of Ethio-Jazz & Composer";
-  const judgeYears = competition.judgeId?.yearsOfExperience ?? 40;
+  const handleAction = () => {
+    if (!competition) return;
+    if (!token) {
+      router.push('/auth/login');
+      return;
+    }
+    if (buttonText === 'Register' || buttonText === 'Pay & Register') {
+      void registerForCompetition();
+    } else if (buttonText === 'Upload Submission') {
+      void uploadSubmission();
+    } else if (buttonText === 'View Results') {
+      void openResults();
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <ActivityIndicator size="large" color={colors.green} />
+        <Text style={styles.loadingText}>Loading opportunity…</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (error || !competition) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <Text style={styles.errorTitle}>This opportunity isn’t available</Text>
+        <Text style={styles.errorText}>{error || 'Try again in a moment.'}</Text>
+        <Pressable onPress={retryCompetition} style={styles.primaryButton}>
+          <Text style={styles.primaryButtonText}>Try again</Text>
+        </Pressable>
+        <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Go back</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
+
+  const judgeName = competition.judgeId?.name;
+  const spotsLeft =
+    typeof competition.totalSpots === 'number'
+      ? Math.max(competition.totalSpots - (competition.spotsBooked ?? 0), 0)
+      : null;
+  const canRegister = buttonText === 'Register' || buttonText === 'Pay & Register';
+  const canAct = canRegister || buttonText === 'Upload Submission' || buttonText === 'View Results';
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.topBar}>
-            <Pressable onPress={() => router.back()}>
-              <Text style={styles.backText}>← Go back</Text>
-            </Pressable>
-            <View style={styles.langBadge}>
-              <Text style={styles.langText}>ENG</Text>
-            </View>
-          </View>
-
-          <View style={styles.titleRow}>
-            <Text style={styles.title}>{competition.title}</Text>
-            <View style={styles.registeredBadge}>
-              <Text style={styles.registeredText}>✓ Registered</Text>
-            </View>
-          </View>
-
-          <View style={styles.tagRow}>
-            {competition.tags?.map((tag) => (
-              <View key={tag} style={styles.tagPill}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.metricsRow}>
-            <View style={styles.metricBox}>
-              <Text style={styles.metricLabel}>Prize Pool</Text>
-              <Text style={styles.metricValue}>
-                {formatCurrency(competition.prizePool)}
-              </Text>
-            </View>
-            <View style={styles.metricBox}>
-              <Text style={styles.metricLabel}>Entry Fee</Text>
-              <Text style={styles.metricValue}>
-                {formatCurrency(competition.entryFee)}
-              </Text>
-            </View>
-            <View style={styles.metricBox}>
-              <Text style={styles.metricLabel}>Spots Left</Text>
-              <Text style={styles.metricValue}>
-                {Math.max(
-                  (competition.totalSpots ?? 0) -
-                    (competition.spotsBooked ?? 0),
-                  0,
-                )}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.progressWrap}>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${Math.min(((competition.spotsBooked ?? 0) / (competition.totalSpots ?? 1)) * 100, 100)}%`,
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.progressMeta}>
-              {competition.spotsBooked ?? 0} / {competition.totalSpots ?? 0}{" "}
-              Booked
-            </Text>
-          </View>
-
-          <View style={styles.judgeCard}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>
-                {judgeName.slice(0, 2).toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.judgeInfo}>
-              <Text style={styles.smallLabel}>Judge</Text>
-              <Text style={styles.judgeName}>{judgeName}</Text>
-              <Text style={styles.judgeMeta}>{judgeTitle}</Text>
-              <Text style={styles.judgeMeta}>
-                {judgeYears} Years of Experience
-              </Text>
-            </View>
-            <Pressable style={styles.videoButton}>
-              <Text style={styles.videoIcon}>▶</Text>
-              <Text style={styles.videoText}>Intro Video</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.timerRow}>
-            <View style={styles.timerItem}>
-              <Text style={styles.timerIcon}>◫</Text>
-              <Text style={styles.timerText}>Registration closes in</Text>
-              <Text style={styles.timerStrong}>01d : 06h : 28m : 32s</Text>
-            </View>
-            <View style={styles.timerItemRight}>
-              <Text style={styles.timerIcon}>◔</Text>
-              <Text style={styles.timerText}>Hurry up!</Text>
-            </View>
-          </View>
-
-          <Text style={styles.sectionTitle}>Important Dates</Text>
-          <View style={styles.dateGrid}>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateIcon}>🗓</Text>
-              <Text style={styles.dateHeading}>Register Before</Text>
-              <Text style={styles.dateValue}>
-                {formatDateLabel(competition.registerBefore)}
-              </Text>
-              <Text style={styles.dateValue}>
-                {formatTime(competition.registerBefore)}
-              </Text>
-            </View>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateIcon}>✦</Text>
-              <Text style={styles.dateHeading}>Submission Starts</Text>
-              <Text style={styles.dateValue}>
-                {formatDateLabel(competition.submissionStart)}
-              </Text>
-              <Text style={styles.dateValue}>
-                {formatTime(competition.submissionStart)}
-              </Text>
-            </View>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateIcon}>⇧</Text>
-              <Text style={styles.dateHeading}>Submission Ends</Text>
-              <Text style={styles.dateValue}>
-                {formatDateLabel(competition.submissionEnd)}
-              </Text>
-              <Text style={styles.dateValue}>
-                {formatTime(competition.submissionEnd)}
-              </Text>
-            </View>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateIcon}>◔</Text>
-              <Text style={styles.dateHeading}>Result Date</Text>
-              <Text style={styles.dateValue}>
-                {formatDateLabel(competition.resultDate)}
-              </Text>
-              <Text style={styles.dateValue}>
-                {formatTime(competition.resultDate)}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={styles.sectionTitle}>Previous Winners</Text>
-          <View style={styles.winnersRow}>
-            {winnerCards.map((winner) => (
-              <View key={winner.name} style={styles.winnerCard}>
-                <View
-                  style={[
-                    styles.winnerAvatar,
-                    { backgroundColor: winner.color },
-                  ]}
-                >
-                  <Text style={styles.winnerInitial}>
-                    {winner.name.slice(0, 2).toUpperCase()}
-                  </Text>
-                </View>
-                <Text style={styles.winnerName}>{winner.name}</Text>
-                <Text style={styles.winnerPosition}>{winner.position}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.tabsRow}>
-            <Text style={styles.activeTab}>About Competition</Text>
-            <Text style={styles.inactiveTab}>Judging Parameters</Text>
-            <Text style={styles.inactiveTab}>Rules & Eligibility</Text>
-          </View>
-
-          <Text style={styles.descriptionText}>{competition.description}</Text>
-          <Text style={styles.linkText}>View more ▾</Text>
-
-          <Text style={styles.sectionTitle}>Rewards (All Positions)</Text>
-          <View style={styles.rewardList}>
-            {rewardRows.map((reward) => (
-              <View key={reward.position} style={styles.rewardRow}>
-                <Text style={styles.rewardText}>
-                  🏆 {reward.position}
-                  {reward.position === 1
-                    ? "st"
-                    : reward.position === 2
-                      ? "nd"
-                      : reward.position === 3
-                        ? "rd"
-                        : "th"}{" "}
-                  Winner
-                </Text>
-                <Text style={styles.rewardAmount}>
-                  {formatCurrency(reward.amount)}
-                </Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.noticeBox}>
-            <Text style={styles.noticeText}>
-              ℹ Disclaimer: Only contributions from paid participants will be
-              considered for judging.
-            </Text>
-          </View>
-
-          <View style={styles.infoGrid}>
-            <View style={styles.infoRowItem}>
-              <Text style={styles.infoRowIcon}>▶</Text>
-              <Text style={styles.infoText}>
-                How will you receive prize money?
-              </Text>
-            </View>
-            <View style={styles.infoRowItem}>
-              <Text style={styles.infoRowIcon}>✓</Text>
-              <Text style={styles.infoText}>Refund policy</Text>
-            </View>
-            <View style={styles.infoRowItem}>
-              <Text style={styles.infoRowIcon}>✓</Text>
-              <Text style={styles.infoText}>
-                Secure payments powered by Razorpay
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.referralCard}>
-            <Text style={styles.referralTitle}>Refer & Earn more discount</Text>
-            <View style={styles.referralInputRow}>
-              <Text style={styles.referralInput}>
-                https://feedants.com/r/referral123
-              </Text>
-              <Pressable style={styles.copyButton}>
-                <Text style={styles.copyText}>Copy Link</Text>
-              </Pressable>
-            </View>
-            <Pressable style={styles.referralCTA}>
-              <Text style={styles.referralButtonText}>Refer Now</Text>
-            </Pressable>
-          </View>
-
-          <Pressable style={styles.bottomActionCard} onPress={handleAction}>
-            <Text style={styles.actionTitle}>{buttonText}</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.navigation}>
+          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back" style={styles.backCircle}>
+            <Text style={styles.backArrow}>←</Text>
           </Pressable>
+        </View>
 
-          {loading && (
-            <View style={styles.loaderWrap}>
-              <ActivityIndicator size="small" color="#0b8f8c" />
+        <View style={styles.hero}>
+          <Text style={styles.eyebrow}>{competition.tags?.slice(0, 2).join('  ·  ') || 'OPEN CALL'}</Text>
+          <Text style={styles.title}>{competition.title}</Text>
+          <Text style={styles.heroCopy}>A place for your next great performance.</Text>
+          <View style={styles.heroMetrics}>
+            <View><Text style={styles.heroMetricLabel}>PRIZE POOL</Text><Text style={styles.heroMetricValue}>{money(competition.prizePool)}</Text></View>
+            <View style={styles.metricDivider} />
+            <View><Text style={styles.heroMetricLabel}>ENTRY FEE</Text><Text style={styles.heroMetricValue}>{money(competition.entryFee)}</Text></View>
+          </View>
+        </View>
+
+        <View style={styles.statusRow}>
+          <View style={styles.statusDot} />
+          <Text style={styles.statusText}>{buttonText}</Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Key dates</Text>
+          <View style={styles.dateCard}>
+            <DateRow label="Registration closes" value={dateLabel(competition.registerBefore)} />
+            <DateRow label="Submissions open" value={dateLabel(competition.submissionStart)} />
+            <DateRow label="Submission deadline" value={dateLabel(competition.submissionEnd)} />
+            <DateRow label="Results announced" value={dateLabel(competition.resultDate)} last />
+          </View>
+        </View>
+
+        {judgeName && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Meet your judge</Text>
+            <View style={styles.judgeCard}>
+              {competition.judgeId?.photoUrl ? (
+                <Image source={{ uri: competition.judgeId.photoUrl }} style={styles.judgePhoto} />
+              ) : (
+                <View style={styles.judgeInitial}><Text style={styles.judgeInitialText}>{judgeName.slice(0, 1).toUpperCase()}</Text></View>
+              )}
+              <View style={styles.judgeInfo}>
+                <Text style={styles.judgeName}>{judgeName}</Text>
+                {!!competition.judgeId?.title && <Text style={styles.judgeTitle}>{competition.judgeId.title}</Text>}
+                {!!competition.judgeId?.yearsOfExperience && <Text style={styles.judgeExperience}>{competition.judgeId.yearsOfExperience} years of experience</Text>}
+              </View>
+            </View>
+            {!!competition.judgeId?.bio && <Text style={styles.judgeBio}>{competition.judgeId.bio}</Text>}
+          </View>
+        )}
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Your opportunity</Text>
+          {spotsLeft !== null && (
+            <View style={styles.spotsCard}>
+              <View style={styles.spotsTop}><Text style={styles.spotsCount}>{spotsLeft}</Text><Text style={styles.spotsCaption}>spots available</Text></View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${competition.totalSpots ? Math.min(((competition.spotsBooked ?? 0) / competition.totalSpots) * 100, 100) : 0}%` }]} />
+              </View>
+              <Text style={styles.progressCaption}>{competition.spotsBooked ?? 0} of {competition.totalSpots} spots filled</Text>
             </View>
           )}
-        </ScrollView>
-      </SafeAreaView>
+          <View style={styles.tabs}>
+            {tabs.map((tab) => (
+              <Pressable
+                key={tab}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === tab }}
+                onPress={() => setActiveTab(tab)}
+                style={[styles.tab, activeTab === tab && styles.tabActive]}>
+                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text numberOfLines={expanded ? undefined : 5} style={styles.bodyText}>{content}</Text>
+          {content.length > 200 && (
+            <Pressable onPress={() => setExpanded((value) => !value)} accessibilityRole="button">
+              <Text style={styles.readMore}>{expanded ? 'Show less' : 'Read more'}</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {!!competition.rewards?.length && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Prizes</Text>
+            <View style={styles.dateCard}>
+              {competition.rewards.map((reward, index) => (
+                <DateRow
+                  key={`${reward.position}-${index}`}
+                  label={`${reward.position}${reward.position === 1 ? 'st' : reward.position === 2 ? 'nd' : reward.position === 3 ? 'rd' : 'th'} place`}
+                  value={money(reward.amount)}
+                  last={index === (competition.rewards?.length ?? 0) - 1}
+                />
+              ))}
+            </View>
+          </View>
+        )}
+
+        {competition.refundPolicy && <Text style={styles.refundText}>Refund policy · {competition.refundPolicy}</Text>}
+      </ScrollView>
+
+      <View style={styles.actionDock}>
+        {!token && <Text style={styles.loginHint}>Sign in to register and share your performance.</Text>}
+        {!!actionMessage && <Text accessibilityRole="alert" style={styles.inlineMessage}>{actionMessage}</Text>}
+        <Pressable
+          accessibilityRole="button"
+          disabled={processingRegistration || processingUpload || (!canAct && !!token)}
+          onPress={handleAction}
+          style={({ pressed }) => [styles.primaryButton, (processingRegistration || processingUpload || (!canAct && !!token)) && styles.disabledButton, pressed && canAct && styles.buttonPressed]}>
+          {processingRegistration || processingUpload ? <ActivityIndicator color={colors.white} /> : <Text style={styles.primaryButtonText}>{token ? buttonText : 'Sign in to continue'}</Text>}
+          {canAct && !processingRegistration && !processingUpload && <Text style={styles.buttonArrow}>→</Text>}
+        </Pressable>
+        {canRegister && <Text style={styles.dockNote}>No payment is collected.</Text>}
+      </View>
+
+      <Modal visible={showResults} animationType="fade" transparent onRequestClose={() => { setShowResults(false); setResult(null); setResultMessage(''); }}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View><Text style={styles.modalKicker}>COMPETITION UPDATE</Text><Text style={styles.modalTitle}>Results</Text></View>
+              <Pressable onPress={() => { setShowResults(false); setResult(null); setResultMessage(''); }} accessibilityRole="button" accessibilityLabel="Close results" style={styles.modalClose}><Text style={styles.modalCloseText}>×</Text></Pressable>
+            </View>
+            {loadingResult ? <ActivityIndicator color={colors.green} /> : result ? (
+              result.winners.length ? result.winners.map((winner) => (
+                  <View key={`${winner.position}-${typeof winner.userId === 'string' ? winner.userId : winner.userId.name}`} style={styles.resultRow}>
+                    <Text style={styles.resultPlace}>{winner.position}{winner.position === 1 ? 'st' : winner.position === 2 ? 'nd' : winner.position === 3 ? 'rd' : 'th'}</Text>
+                    <Text style={styles.resultName}>{typeof winner.userId === 'string' ? 'Participant' : winner.userId.name || 'Participant'}</Text>
+                    <Text style={styles.resultPrize}>{money(winner.prizeAwarded)}</Text>
+                  </View>
+                )) : <Text style={styles.disclaimer}>Results have not been announced yet.</Text>
+            ) : <Text style={styles.disclaimer}>{resultMessage}</Text>}
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+function DateRow({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
+  return (
+    <View style={[styles.dateRow, last && styles.dateRowLast]}>
+      <View style={styles.dateDot} />
+      <Text style={styles.dateLabel}>{label}</Text>
+      <Text style={styles.dateValue}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#edf5f5",
-  },
-  safeArea: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 18,
-    paddingBottom: 80,
-  },
-  topBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 10,
-    marginBottom: 12,
-  },
-  backText: {
-    fontSize: 18,
-    color: "#0d1b2a",
-    fontWeight: "600",
-  },
-  langBadge: {
-    backgroundColor: "#e7ecec",
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  langText: {
-    fontSize: 12,
-    color: "#1f2937",
-    fontWeight: "700",
-  },
-  titleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-    gap: 12,
-  },
-  title: {
-    fontSize: 34,
-    lineHeight: 40,
-    color: "#0d1b2a",
-    fontWeight: "800",
-    flex: 1,
-    flexShrink: 1,
-  },
-  registeredBadge: {
-    backgroundColor: "#dff7f2",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "#79d1bf",
-  },
-  registeredText: {
-    color: "#0f766e",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  tagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 14,
-  },
-  tagPill: {
-    backgroundColor: "#e8f3f2",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  tagText: {
-    color: "#0f766e",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  metricsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "#eef6f5",
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 10,
-  },
-  metricBox: {
-    flex: 1,
-    alignItems: "center",
-  },
-  metricLabel: {
-    color: "#3f4b5d",
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  metricValue: {
-    color: "#0d1b2a",
-    fontSize: 28,
-    fontWeight: "800",
-  },
-  progressWrap: {
-    marginBottom: 18,
-  },
-  progressTrack: {
-    height: 8,
-    backgroundColor: "#d9e8e8",
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#0fb5a8",
-    borderRadius: 999,
-  },
-  progressMeta: {
-    marginTop: 8,
-    color: "#2c3748",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  judgeCard: {
-    backgroundColor: "#edf8f7",
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 18,
-  },
-  avatarCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "#d7c4ff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: {
-    color: "#1f2937",
-    fontWeight: "800",
-    fontSize: 18,
-  },
-  judgeInfo: {
-    flex: 1,
-  },
-  smallLabel: {
-    color: "#536174",
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  judgeName: {
-    color: "#0c2436",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  judgeMeta: {
-    color: "#536174",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  videoButton: {
-    backgroundColor: "#d8eff1",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  videoIcon: {
-    color: "#0f766e",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  videoText: {
-    color: "#0d1b2a",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  timerRow: {
-    backgroundColor: "#dff5f2",
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  timerItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 1,
-  },
-  timerItemRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginLeft: 10,
-  },
-  timerIcon: {
-    color: "#0f766e",
-    fontSize: 18,
-  },
-  timerText: {
-    color: "#0d1b2a",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  timerStrong: {
-    color: "#0d1b2a",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  sectionTitle: {
-    color: "#0d1b2a",
-    fontSize: 20,
-    fontWeight: "800",
-    marginBottom: 12,
-  },
-  dateGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 22,
-    gap: 10,
-  },
-  dateBox: {
-    width: "48%",
-    backgroundColor: "#f3f7f7",
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#dfe9e9",
-  },
-  dateIcon: {
-    fontSize: 18,
-    marginBottom: 8,
-  },
-  dateHeading: {
-    color: "#3d4a5d",
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  dateValue: {
-    color: "#0f172a",
-    fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 2,
-  },
-  winnersRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 18,
-  },
-  winnerCard: {
-    flex: 1,
-    alignItems: "center",
-    backgroundColor: "#f3f6f6",
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-  },
-  winnerAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  winnerInitial: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  winnerName: {
-    textAlign: "center",
-    color: "#0f172a",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  winnerPosition: {
-    marginTop: 4,
-    color: "#52657b",
-    fontSize: 11,
-  },
-  tabsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: "#edf5f5",
-    borderRadius: 12,
-    overflow: "hidden",
-    padding: 4,
-    marginBottom: 12,
-  },
-  activeTab: {
-    flex: 1,
-    textAlign: "center",
-    backgroundColor: "#ffffff",
-    borderRadius: 10,
-    paddingVertical: 8,
-    color: "#0ea5a0",
-    fontWeight: "700",
-    fontSize: 11,
-  },
-  inactiveTab: {
-    flex: 1,
-    textAlign: "center",
-    color: "#5b6472",
-    fontWeight: "600",
-    fontSize: 11,
-    paddingVertical: 8,
-  },
-  descriptionText: {
-    color: "#3a4658",
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  linkText: {
-    color: "#0ea5a0",
-    fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 18,
-  },
-  rewardList: {
-    gap: 12,
-    marginBottom: 18,
-  },
-  rewardRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#dfe9e9",
-  },
-  rewardText: {
-    color: "#0d1b2a",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  rewardAmount: {
-    color: "#0d1b2a",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  noticeBox: {
-    backgroundColor: "#dfeef2",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-  },
-  noticeText: {
-    color: "#0f766e",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  infoGrid: {
-    gap: 10,
-    marginBottom: 18,
-  },
-  infoRowItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#f4f7f7",
-    borderRadius: 12,
-    padding: 12,
-  },
-  infoRowIcon: {
-    color: "#0f766e",
-    fontSize: 16,
-  },
-  infoText: {
-    color: "#1f2937",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  referralCard: {
-    backgroundColor: "#dff4ef",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 20,
-  },
-  referralTitle: {
-    color: "#0d1b2a",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 10,
-  },
-  referralInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-  },
-  referralInput: {
-    flex: 1,
-    backgroundColor: "#f4fbfb",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    color: "#475569",
-    fontSize: 12,
-  },
-  copyButton: {
-    backgroundColor: "#eaf4f4",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  copyText: {
-    color: "#0f172a",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  referralCTA: {
-    backgroundColor: "#0d8d8f",
-    borderRadius: 12,
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  referralButtonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  bottomActionCard: {
-    backgroundColor: "#0a7f7c",
-    borderRadius: 18,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    alignItems: "center",
-    marginTop: 10,
-  },
-  actionTitle: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  actionSubtitle: {
-    color: "#d9fefb",
-    fontSize: 12,
-    marginTop: 4,
-  },
-  loaderWrap: {
-    marginVertical: 12,
-    alignItems: "center",
-  },
+  safeArea: { flex: 1, backgroundColor: colors.canvas },
+  content: { paddingHorizontal: 20, paddingBottom: 28 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.canvas, padding: 28 },
+  loadingText: { color: colors.muted, fontSize: 13, marginTop: 12 },
+  errorTitle: { color: colors.ink, fontWeight: '800', fontSize: 21, textAlign: 'center' },
+  errorText: { color: colors.muted, fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: 8, marginBottom: 14 },
+  navigation: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+  backCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  backArrow: { color: colors.ink, fontSize: 20 },
+  hero: { backgroundColor: '#153d32', borderRadius: 25, padding: 22, marginTop: 7 },
+  eyebrow: { color: '#b5dbc4', fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
+  title: { color: colors.white, fontSize: 29, lineHeight: 35, letterSpacing: -0.8, fontWeight: '800', marginTop: 13 },
+  heroCopy: { color: '#d3e6dc', fontSize: 13, marginTop: 9 },
+  heroMetrics: { flexDirection: 'row', alignItems: 'center', gap: 20, borderTopWidth: 1, borderTopColor: '#ffffff30', marginTop: 21, paddingTop: 17 },
+  heroMetricLabel: { color: '#b5dbc4', fontSize: 9, fontWeight: '800', letterSpacing: 0.9 },
+  heroMetricValue: { color: colors.white, fontSize: 17, fontWeight: '800', marginTop: 4 },
+  metricDivider: { width: 1, height: 35, backgroundColor: '#ffffff30' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 15, backgroundColor: colors.white, padding: 14, marginTop: 13, borderWidth: 1, borderColor: colors.border },
+  statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#52a877', marginRight: 9 },
+  statusText: { flex: 1, color: colors.ink, fontSize: 12, fontWeight: '700' },
+  section: { marginTop: 25 },
+  sectionTitle: { color: colors.ink, fontSize: 19, letterSpacing: -0.4, fontWeight: '800', marginBottom: 11 },
+  dateCard: { backgroundColor: colors.white, borderRadius: 17, paddingHorizontal: 15, paddingVertical: 3, borderWidth: 1, borderColor: colors.border },
+  dateRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#edf0eb', gap: 9 },
+  dateRowLast: { borderBottomWidth: 0 },
+  dateDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#80ad8c' },
+  dateLabel: { flex: 1, color: colors.muted, fontSize: 11 },
+  dateValue: { color: colors.ink, fontSize: 11, fontWeight: '700', textAlign: 'right', maxWidth: '55%' },
+  judgeCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: 17, padding: 14, borderWidth: 1, borderColor: colors.border },
+  judgePhoto: { width: 52, height: 52, borderRadius: 18, backgroundColor: '#e6eee8' },
+  judgeInitial: { width: 52, height: 52, borderRadius: 18, backgroundColor: '#e6eee8', alignItems: 'center', justifyContent: 'center' },
+  judgeInitialText: { color: colors.green, fontSize: 20, fontWeight: '800' },
+  judgeInfo: { flex: 1 },
+  judgeName: { color: colors.ink, fontSize: 15, fontWeight: '800' },
+  judgeTitle: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  judgeExperience: { color: colors.green, fontSize: 10, fontWeight: '700', marginTop: 5 },
+  judgeBio: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 10, paddingHorizontal: 2 },
+  spotsCard: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: 17, padding: 15, marginBottom: 13 },
+  spotsTop: { flexDirection: 'row', alignItems: 'baseline', gap: 7, marginBottom: 11 },
+  spotsCount: { color: colors.ink, fontSize: 22, fontWeight: '800' },
+  spotsCaption: { color: colors.muted, fontSize: 11 },
+  progressTrack: { height: 7, borderRadius: 4, backgroundColor: '#e9eee8', overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4, backgroundColor: '#3e9670' },
+  progressCaption: { color: colors.muted, fontSize: 9, marginTop: 7 },
+  tabs: { flexDirection: 'row', backgroundColor: '#eaf0e9', borderRadius: 14, padding: 4, gap: 3 },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 11 },
+  tabActive: { backgroundColor: colors.white },
+  tabText: { color: colors.muted, fontSize: 10, fontWeight: '700' },
+  tabTextActive: { color: colors.green },
+  bodyText: { color: '#475a51', fontSize: 13, lineHeight: 21, marginTop: 13 },
+  readMore: { color: colors.green, fontSize: 11, fontWeight: '800', marginTop: 8 },
+  refundText: { color: colors.muted, fontSize: 10, lineHeight: 16, marginTop: 14, marginBottom: 5 },
+  actionDock: { backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 },
+  loginHint: { color: colors.muted, fontSize: 10, textAlign: 'center', marginBottom: 7 },
+  inlineMessage: { color: colors.muted, fontSize: 10, textAlign: 'center', marginBottom: 7 },
+  primaryButton: { minHeight: 50, backgroundColor: colors.green, borderRadius: 15, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, gap: 10 },
+  primaryButtonText: { color: colors.white, fontSize: 14, fontWeight: '800' },
+  buttonArrow: { color: colors.white, fontSize: 17 },
+  disabledButton: { backgroundColor: '#aab8ad' },
+  buttonPressed: { opacity: 0.86 },
+  backButton: { padding: 12 },
+  backButtonText: { color: colors.green, fontSize: 13, fontWeight: '700' },
+  dockNote: { color: colors.muted, fontSize: 9, textAlign: 'center', marginTop: 7 },
+  modalBackdrop: { flex: 1, backgroundColor: '#12231f99', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: colors.white, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 30, maxHeight: '90%' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
+  modalKicker: { color: colors.green, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  modalTitle: { color: colors.ink, fontSize: 24, fontWeight: '800', letterSpacing: -0.7, marginTop: 4 },
+  modalClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#f0f3ef', alignItems: 'center', justifyContent: 'center' },
+  modalCloseText: { color: colors.ink, fontSize: 22, lineHeight: 25 },
+  disclaimer: { color: colors.muted, fontSize: 11, lineHeight: 17, marginVertical: 16 },
+  resultRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  resultPlace: { color: colors.green, fontSize: 11, fontWeight: '800', width: 38 },
+  resultName: { color: colors.ink, flex: 1, fontSize: 12, fontWeight: '700' },
+  resultPrize: { color: colors.ink, fontSize: 11, fontWeight: '800' },
 });
-
-//avrzjqwo
-//jtuedsvv

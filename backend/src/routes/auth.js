@@ -17,11 +17,29 @@ router.post("/register", async (req, res) => {
   try {
     const { name, email, phone, password, photoUrl, referralCode } = req.body;
 
-    if (!name || !email || !phone || !password) {
+    if (
+      typeof name !== "string" ||
+      typeof email !== "string" ||
+      typeof phone !== "string" ||
+      typeof password !== "string" ||
+      !name.trim() ||
+      !email.trim() ||
+      !phone.trim() ||
+      !password
+    ) {
       return res.status(400).json({ message: "name, email, phone, and password are required" });
     }
 
-    const existing = await User.findOne({ email });
+    if (password.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ message: "Enter a valid email address" });
+    }
+
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(409).json({ message: "Email is already registered" });
     }
@@ -29,9 +47,9 @@ router.post("/register", async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await User.create({
-      name,
-      email,
-      phone,
+      name: name.trim(),
+      email: normalizedEmail,
+      phone: phone.trim(),
       photoUrl,
       referralCode,
       passwordHash,
@@ -60,11 +78,11 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== "string" || typeof password !== "string" || !email.trim() || !password) {
       return res.status(400).json({ message: "email and password are required" });
     }
 
-    const user = await User.findOne({ email }).select("+passwordHash");
+    const user = await User.findOne({ email: email.trim().toLowerCase() }).select("+passwordHash");
     if (!user) {
       return res.status(401).json({ message: "Invalid email or password" });
     }

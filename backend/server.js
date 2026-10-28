@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const { randomUUID } = require("crypto");
 const connectDB = require("./src/config/db");
 const Competition = require("./src/models/Competition");
 const Judge = require("./src/models/Judge");
@@ -14,6 +15,14 @@ const { requireAuth, requireAdmin, optionalAuth } = require("./src/middleware/au
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured before starting the API");
+}
 
 function deriveCompetitionStatus(competition, now = new Date()) {
   const registrationStatus =
@@ -60,7 +69,14 @@ async function getUserCompetitionState(userId, competitionId) {
   };
 }
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || process.env.NODE_ENV !== "production") {
+      return callback(null, true);
+    }
+    return callback(null, allowedOrigins.includes(origin));
+  },
+}));
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
@@ -114,9 +130,9 @@ app.get("/api/competitions/:id/state", optionalAuth, async (req, res) => {
     const { registrationStatus, submissionStatus } =
       deriveCompetitionStatus(competition);
 
-    let buttonText = "Pay & Register";
+    let buttonText = "Register";
     if (userState.registrationStatus === "pending_payment") {
-      buttonText = "Pay & Register";
+      buttonText = "Register";
     } else if (userState.registrationStatus === "registered") {
       if (submissionStatus === "not_started")
         buttonText = "Submission opens soon";
@@ -166,13 +182,29 @@ app.post("/api/competitions", requireAuth, requireAdmin, async (req, res) => {
 });
 
 app.post("/api/competitions/:id/register", requireAuth, async (req, res) => {
+  let reservedCompetitionId;
   try {
     const userId = req.user.userId;
-
-
     const competition = await Competition.findById(req.params.id);
     if (!competition) {
       return res.status(404).json({ message: "Competition not found" });
+    }
+
+    const existing = await Registration.findOne({
+      userId,
+      competitionId: competition._id,
+    });
+    if (existing) {
+      if (existing.paymentStatus === "pending") {
+        existing.paymentStatus = "demo";
+        existing.paymentReference = `DEMO-${randomUUID()}`;
+        await existing.save();
+      }
+      return res.status(200).json({
+        registration: existing,
+        competition,
+        message: "Registration is complete. No payment was collected.",
+      });
     }
 
     const { registrationStatus } = deriveCompetitionStatus(competition);
@@ -180,40 +212,41 @@ app.post("/api/competitions/:id/register", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "Registration is closed" });
     }
 
-    const alreadyRegistered = await Registration.findOne({
-      userId,
-      competitionId: competition._id,
-    });
-
-    if (alreadyRegistered) {
-      return res.status(409).json({ message: "You are already registered" });
-    }
-
     const updatedCompetition = await Competition.findOneAndUpdate(
-      { _id: competition._id, spotsBooked: { $lt: competition.totalSpots } },
+      {
+        _id: competition._id,
+        registerBefore: { $gte: new Date() },
+        $expr: { $lt: ["$spotsBooked", "$totalSpots"] },
+      },
       { $inc: { spotsBooked: 1 } },
       { new: true },
     );
-
     if (!updatedCompetition) {
-      return res.status(400).json({ message: "Competition is full" });
+      return res.status(409).json({
+        message: "Registration has closed or all competition spots have been filled",
+      });
     }
+    reservedCompetitionId = competition._id;
 
     const registration = await Registration.create({
       userId,
       competitionId: competition._id,
       registeredAt: new Date(),
-      paymentStatus: "paid",          // auto-marked paid in demo mode
-      paymentReference: `DEMO-${Date.now()}`,
+      paymentStatus: "demo",
+      paymentReference: `DEMO-${randomUUID()}`,
     });
-
-    return res
-      .status(201)
-      .json({ 
-        registration, 
-        competition: updatedCompetition
-      });
+    reservedCompetitionId = null;
+    return res.status(201).json({
+      registration,
+      competition: updatedCompetition,
+      message: "Registration created. No payment was collected.",
+    });
   } catch (error) {
+    if (reservedCompetitionId) {
+      await Competition.findByIdAndUpdate(reservedCompetitionId, {
+        $inc: { spotsBooked: -1 },
+      });
+    }
     if (error && error.code === 11000) {
       return res.status(409).json({ message: "You are already registered" });
     }
@@ -224,42 +257,46 @@ app.post("/api/competitions/:id/register", requireAuth, async (req, res) => {
 app.post("/api/competitions/:id/submissions", requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { registrationId, fileUrl, mediaUrl } = req.body;
+    const { fileUrl } = req.body;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    if (!cloudName) {
+      return res.status(503).json({ message: "Submission storage is not configured" });
+    }
+    if (typeof fileUrl !== "string") {
+      return res.status(400).json({ message: "fileUrl must be a Cloudinary video URL" });
+    }
 
-    if (!fileUrl) {
-      return res
-        .status(400)
-        .json({ message: "fileUrl is required" });
+    let uploadUrl;
+    try {
+      uploadUrl = new URL(fileUrl);
+    } catch {
+      return res.status(400).json({ message: "fileUrl must be a valid Cloudinary video URL" });
+    }
+    const expectedPath = `/${cloudName}/video/upload/`;
+    if (
+      uploadUrl.protocol !== "https:" ||
+      uploadUrl.hostname !== "res.cloudinary.com" ||
+      !uploadUrl.pathname.startsWith(expectedPath)
+    ) {
+      return res.status(400).json({ message: "Only videos hosted in the configured Cloudinary account are accepted" });
     }
 
     const competition = await Competition.findById(req.params.id);
     if (!competition) {
       return res.status(404).json({ message: "Competition not found" });
     }
-
     const { submissionStatus } = deriveCompetitionStatus(competition);
     if (submissionStatus !== "open") {
       return res.status(400).json({ message: "Submissions are closed" });
     }
 
-    let registration = registrationId
-      ? await Registration.findById(registrationId)
-      : await Registration.findOne({ userId, competitionId: competition._id });
-
+    const registration = await Registration.findOne({
+      userId,
+      competitionId: competition._id,
+      paymentStatus: { $ne: "pending" },
+    });
     if (!registration) {
-      return res
-        .status(403)
-        .json({ message: "User is not registered for this competition" });
-    }
-
-     if (String(registration.userId) !== String(userId)) {
-      return res.status(403).json({ message: "Registration does not belong to this user" });
-    }
-
-    if (String(registration.competitionId) !== String(competition._id)) {
-      return res
-        .status(403)
-        .json({ message: "Registration does not match this competition" });
+      return res.status(403).json({ message: "Register for this competition before uploading a submission" });
     }
 
     const existingSubmission = await Submission.findOne({
@@ -267,24 +304,22 @@ app.post("/api/competitions/:id/submissions", requireAuth, async (req, res) => {
       competitionId: competition._id,
     });
     if (existingSubmission) {
-      return res
-        .status(409)
-        .json({
-          message: "Submission already exists for this user and competition",
-        });
+      return res.status(409).json({ message: "A submission already exists for this competition" });
     }
 
     const submission = await Submission.create({
       userId,
       registrationId: registration._id,
       competitionId: competition._id,
-      fileUrl,
-      mediaUrl: mediaUrl || fileUrl,
+      fileUrl: uploadUrl.toString(),
+      mediaUrl: uploadUrl.toString(),
       submittedAt: new Date(),
     });
-
     return res.status(201).json(submission);
   } catch (error) {
+    if (error && error.code === 11000) {
+      return res.status(409).json({ message: "A submission already exists for this competition" });
+    }
     return res.status(500).json({ message: error.message });
   }
 });
@@ -382,30 +417,10 @@ app.get("/api/results", async (req, res) => {
   }
 });
 
-// Chapa Webhook Endpoint
 app.post("/api/webhooks/chapa", async (req, res) => {
-  try {
-    const { tx_ref, status } = req.body;
-    
-    // In production, verify the webhook signature using CHAPA_WEBHOOK_SECRET
-    
-    if (status === "success" && tx_ref) {
-      const registration = await Registration.findOneAndUpdate(
-        { tx_ref },
-        { status: "registered" },
-        { new: true }
-      );
-      if (registration) {
-        console.log(`Payment verified for registration: ${registration._id}`);
-      }
-    }
-    
-    // Always return 200 to acknowledge receipt
-    res.status(200).send("Webhook received");
-  } catch (error) {
-    console.error("Webhook error:", error);
-    res.status(500).send("Server Error");
-  }
+  res.status(501).json({
+    message: "Real payment processing is not configured. Demo checkout does not use this webhook.",
+  });
 });
 
 app.use((error, req, res, next) => {

@@ -1,5 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -9,14 +19,21 @@ type LoginScreenProps = {
   onContinueAsGuest?: () => void;
 };
 
+type AuthResponse = {
+  message?: string;
+  token?: string;
+  user?: { id: string; name: string; email: string; role: string };
+};
+
 export default function LoginScreen({ onContinueAsGuest }: LoginScreenProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  
+  const [error, setError] = useState('');
   const { login } = useAuth();
 
   const handleClose = () => {
@@ -30,185 +47,147 @@ export default function LoginScreen({ onContinueAsGuest }: LoginScreenProps) {
   };
 
   const handleSubmit = async () => {
-    if (!email || !password || (!isLogin && (!name || !phone))) {
-      const msg = 'Please fill in all fields';
-      Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Error', msg);
+    setError('');
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !password || (!isLogin && (!name.trim() || !phone.trim()))) {
+      setError('Complete all required fields to continue.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (!isLogin && password.length < 8) {
+      setError('Choose a password with at least 8 characters.');
+      return;
+    }
+    if (!isLogin && password !== confirmPassword) {
+      setError('Your passwords do not match.');
       return;
     }
 
     setLoading(true);
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-      const body = isLogin 
-        ? { email, password } 
-        : { name, email, phone, password };
-
-      const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}${isLogin ? '/api/auth/login' : '/api/auth/register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          isLogin
+            ? { email: normalizedEmail, password }
+            : { name: name.trim(), email: normalizedEmail, phone: phone.trim(), password },
+        ),
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Authentication failed');
-      }
-
+      const data: AuthResponse = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Authentication failed.');
+      if (!data.token || !data.user) throw new Error('The server returned an incomplete sign-in response.');
       await login(data.token, data.user);
       handleClose();
-    } catch (error: any) {
-      Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Unable to connect to Feedants. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.formContainer}>
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>{isLogin ? 'Welcome to Feedants' : 'Create Account'}</Text>
-          <Pressable onPress={handleClose} style={styles.closeBtn}>
-            <Text style={styles.closeBtnText}>✕</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.subtitle}>
-          {isLogin ? 'Log in to register and submit your performances' : 'Join Feedants to compete and win prizes'}
-        </Text>
-        
-        {!isLogin && (
-          <>
-            <TextInput
-              style={styles.input}
-              placeholder="Full Name"
-              value={name}
-              onChangeText={setName}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Phone Number"
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={setPhone}
-            />
-          </>
-        )}
-        
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.topBar}>
+            <Pressable onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close sign in" style={styles.closeButton}>
+              <Text style={styles.closeText}>×</Text>
+            </Pressable>
+            <Text style={styles.topBrand}>feedants</Text>
+            <View style={styles.closeButtonSpacer} />
+          </View>
+          <View style={styles.card}>
+            <View style={styles.brandMark}><Text style={styles.brandLetter}>f</Text></View>
+            <Text style={styles.eyebrow}>{isLogin ? 'YOUR NEXT CHAPTER STARTS HERE' : 'JOIN THE COMMUNITY'}</Text>
+            <Text style={styles.title}>{isLogin ? 'Welcome back.' : 'Make your mark.'}</Text>
+            <Text style={styles.subtitle}>
+              {isLogin ? 'Sign in to explore your opportunities.' : 'Create an account to join competitions and share your performances.'}
+            </Text>
 
-        <Pressable style={styles.button} onPress={handleSubmit} disabled={loading}>
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>{isLogin ? 'Log In' : 'Sign Up'}</Text>
-          )}
-        </Pressable>
+            {!isLogin && (
+              <>
+                <Field label="Full name" value={name} onChangeText={setName} placeholder="Your name" autoComplete="name" />
+                <Field label="Phone number" value={phone} onChangeText={setPhone} placeholder="Your phone number" keyboardType="phone-pad" autoComplete="tel" />
+              </>
+            )}
+            <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
+            <Field label="Password" value={password} onChangeText={setPassword} placeholder={isLogin ? 'Enter your password' : 'At least 8 characters'} secureTextEntry autoComplete={isLogin ? 'current-password' : 'new-password'} />
+            {!isLogin && <Field label="Confirm password" value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Enter your password again" secureTextEntry autoComplete="new-password" />}
 
-        <Pressable onPress={() => setIsLogin(!isLogin)} style={styles.switchButton}>
-          <Text style={styles.switchText}>
-            {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Log In"}
-          </Text>
-        </Pressable>
-
-        <Pressable onPress={handleClose} style={styles.guestButton}>
-          <Text style={styles.guestText}>Continue Browsing as Guest →</Text>
-        </Pressable>
-      </View>
+            {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleSubmit()}
+              disabled={loading}
+              style={({ pressed }) => [styles.submitButton, loading && styles.submitDisabled, pressed && !loading && styles.submitPressed]}>
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{isLogin ? 'Sign in' : 'Create account'} <Text style={styles.submitArrow}>→</Text></Text>}
+            </Pressable>
+            <Pressable onPress={() => { setIsLogin((value) => !value); setError(''); }} style={styles.switchButton}>
+              <Text style={styles.switchText}>{isLogin ? 'New to Feedants? ' : 'Already have an account? '}<Text style={styles.switchEmphasis}>{isLogin ? 'Create account' : 'Sign in'}</Text></Text>
+            </Pressable>
+            <View style={styles.divider}><View style={styles.dividerLine} /><Text style={styles.dividerText}>OR</Text><View style={styles.dividerLine} /></View>
+            <Pressable onPress={handleClose} style={styles.guestButton}>
+              <Text style={styles.guestText}>Continue exploring as a guest <Text style={styles.guestArrow}>↗</Text></Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+function Field({
+  label,
+  ...props
+}: React.ComponentProps<typeof TextInput> & { label: string }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        {...props}
+        style={styles.input}
+        placeholderTextColor="#94a19a"
+        returnKeyType="next"
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#edf5f5',
-    justifyContent: 'center',
-  },
-  formContainer: {
-    padding: 24,
-    backgroundColor: '#fff',
-    margin: 20,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  closeBtn: {
-    padding: 6,
-  },
-  closeBtnText: {
-    fontSize: 18,
-    color: '#94a3b8',
-    fontWeight: '700',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0d1b2a',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#64748b',
-    marginBottom: 20,
-  },
-  input: {
-    backgroundColor: '#f4fbfb',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    fontSize: 16,
-    color: '#0d1b2a',
-  },
-  button: {
-    backgroundColor: '#0fb5a8',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  switchButton: {
-    marginTop: 16,
-    alignItems: 'center',
-  },
-  switchText: {
-    color: '#0fb5a8',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  guestButton: {
-    marginTop: 14,
-    alignItems: 'center',
-  },
-  guestText: {
-    color: '#64748b',
-    fontSize: 13,
-    fontWeight: '500',
-  },
+  safeArea: { flex: 1, backgroundColor: '#f5f7f2' },
+  fill: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 24 },
+  topBar: { height: 55, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  closeButton: { width: 35, height: 35, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e4e9e2' },
+  closeText: { color: '#58675e', fontSize: 22, lineHeight: 25 },
+  topBrand: { color: '#173a30', fontSize: 15, fontWeight: '800', letterSpacing: -0.3 },
+  closeButtonSpacer: { width: 35 },
+  card: { width: '100%', maxWidth: 450, alignSelf: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e6ebe4', borderRadius: 24, padding: 23, marginTop: 10 },
+  brandMark: { width: 37, height: 37, borderRadius: 13, backgroundColor: '#176b53', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  brandLetter: { color: '#fff', fontSize: 21, fontWeight: '800' },
+  eyebrow: { color: '#518067', fontSize: 9, fontWeight: '800', letterSpacing: 1.3 },
+  title: { color: '#12231f', fontSize: 30, lineHeight: 35, fontWeight: '800', letterSpacing: -1, marginTop: 8 },
+  subtitle: { color: '#71817a', fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 },
+  field: { marginTop: 12 },
+  label: { color: '#44574b', fontSize: 10, fontWeight: '700', marginBottom: 6 },
+  input: { height: 45, borderWidth: 1, borderColor: '#e0e7e0', borderRadius: 11, paddingHorizontal: 12, color: '#1b2b23', fontSize: 13, backgroundColor: '#fcfdfb' },
+  error: { color: '#a43e36', backgroundColor: '#fff2f0', borderWidth: 1, borderColor: '#f2d4d0', borderRadius: 10, padding: 10, fontSize: 11, lineHeight: 16, marginTop: 14 },
+  submitButton: { minHeight: 48, borderRadius: 12, backgroundColor: '#176b53', alignItems: 'center', justifyContent: 'center', marginTop: 20 },
+  submitDisabled: { opacity: 0.7 },
+  submitPressed: { opacity: 0.85 },
+  submitText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  submitArrow: { fontSize: 16 },
+  switchButton: { alignItems: 'center', paddingVertical: 15 },
+  switchText: { color: '#71817a', fontSize: 11 },
+  switchEmphasis: { color: '#176b53', fontWeight: '800' },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#e9ede8' },
+  dividerText: { color: '#9aa59d', fontSize: 8, fontWeight: '700' },
+  guestButton: { alignItems: 'center', paddingTop: 15, paddingBottom: 2 },
+  guestText: { color: '#56695d', fontSize: 11, fontWeight: '700' },
+  guestArrow: { color: '#176b53', fontSize: 13 },
 });

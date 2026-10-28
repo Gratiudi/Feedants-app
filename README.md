@@ -1,158 +1,98 @@
-# Feedants — Comprehensive Competition & Talent Showcase Platform
+# Feedants
 
-Feedants is a full-stack, cross-platform competition ecosystem designed for performers, artists, and creators. It allows participants to discover competitions, register, submit performance media, and track results, while providing organizers with a centralized administrative dashboard.
+Feedants is a competition platform for performers, organizers, and judges. It contains an Expo participant app, an Express/MongoDB API, and a React admin workspace.
 
----
+Participants can register directly for open competitions, then upload a performance during the submission window. Registration reserves a spot but does not collect payment; video submissions are uploaded to the configured Cloudinary account.
 
-## 🏛 Architecture & Project Structure
+## Project layout
 
-The project is organized as a **monorepo** consisting of three core applications:
+- `backend/` — Express API, authentication, MongoDB models, catalog seed.
+- `mobile/` — Expo Router app for iOS, Android, and web.
+- `admin-web/` — Vite/React organizer dashboard.
 
-```text
-feedant-app/
-├── backend/          # Node.js / Express REST API with MongoDB Atlas
-├── mobile/           # React Native (Expo) cross-platform app (iOS, Android, Web)
-├── admin-web/        # React + TypeScript + Vite administrative dashboard
-└── README.md
-```
+## Run locally
 
-### 1. `backend/` (Core API Engine)
-- **Runtime**: Node.js & Express.
-- **Database**: MongoDB Atlas via Mongoose.
-- **Authentication**: JWT (JSON Web Tokens) with `bcryptjs` password hashing and role-based access control (`user` vs `admin`).
-- **Dynamic State Computation**: Evaluates registration windows, submission deadlines, and results dynamically per request to prevent database state drift.
-- **Concurrency Protection**: Uses atomic conditional updates (`findOneAndUpdate` with `$inc`) to guarantee spots are never overbooked.
-- **Payments**: Integrated payment architecture ready for Chapa / online gateways.
+Requirements: Node.js 20+ and npm, plus MongoDB (Atlas or local).
 
-### 2. `mobile/` (Participant Application)
-- **Framework**: Expo Router (React Native) supporting iOS, Android, and Web.
-- **Features**:
-  - Live competition browsing with Ethiopian Birr (ETB) & international currency formatting.
-  - Rich competition detail screens with jury profiles, judging criteria, and prize tiers.
-  - Dynamic action CTA button driven by server state:
-    - `Pay & Register`
-    - `Submission opens soon`
-    - `Upload Submission` (Cloudinary media upload)
-    - `Submitted — Registered`
-    - `Awaiting Results`
-    - `View Results`
-  - Integrated User Profile header and one-click Logout / Session refresh.
+1. Copy `backend/.env.example` to `backend/.env`, set `MONGODB_URI`, and replace `JWT_SECRET` with a long random value. Keep secrets out of Git.
+2. Start the API:
 
-### 3. `admin-web/` (Organizer & Judge Dashboard)
-- **Framework**: React 19, TypeScript, and Vite.
-- **Features**:
-  - Secure Admin authentication with role validation.
-  - Real-time competition creation and spots monitoring.
-  - Winner designation and result publishing.
-
----
-
-## 🚀 Quick Start & Local Setup
-
-### Prerequisites
-- Node.js 18+ and npm
-- A MongoDB connection string (local or MongoDB Atlas)
-
----
-
-### Step 1: Backend Setup
-
-```bash
-cd backend
-npm install
-```
-
-Create or verify `backend/.env`:
-```env
-MONGODB_URI=your_mongodb_connection_string
-PORT=5000
-ADMIN_SECRET=dev-admin-secret
-JWT_SECRET=super-secret-dev-jwt-key-2026
-CHAPA_SECRET_KEY=CHASECK_TEST_placeholder
-```
-
-#### Seed the Database
-Populate Ethiopian & International competitions and judges:
-```bash
-npm run seed
-```
-
-#### Start Backend Server
-```bash
-npm run dev
-```
-The API server will run at `http://localhost:5000`.
-
----
-
-### Step 2: Mobile App Setup (Expo)
-
-```bash
-cd ../mobile
-npm install
-npx expo start
-```
-- Press **`w`** to open in your web browser.
-- Scan the QR code with **Expo Go** on Android/iOS to run on a physical device.
-
----
-
-### Step 3: Admin Web Dashboard Setup (Vite)
-
-```bash
-cd ../admin-web
-npm install
-npm run dev
-```
-Open `http://localhost:5173` to access the administrator panel.
-
----
-
-## 📡 API Endpoints
-
-### Authentication (`/api/auth`)
-| Method | Endpoint | Description | Auth Required |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | Register a new user account | No |
-| `POST` | `/api/auth/login` | Log in and receive JWT token | No |
-
-### Competitions (`/api/competitions`)
-| Method | Endpoint | Description | Auth Required |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/competitions` | List all competitions sorted by date | No |
-| `GET` | `/api/competitions/:id` | Get details of a single competition | No |
-| `GET` | `/api/competitions/:id/state` | Get current user's state & dynamic button CTA | Optional JWT |
-| `POST` | `/api/competitions` | Create a new competition | Admin (`role: admin`) |
-| `POST` | `/api/competitions/:id/register` | Atomically reserve a spot & register user | User JWT |
-| `POST` | `/api/competitions/:id/submissions`| Submit performance media URL | User JWT |
-| `POST` | `/api/competitions/:id/results` | Announce winners & publish results | Admin |
-
-### Health Check
-- `GET /health` — Returns `{ "status": "ok" }`.
-
----
-
-## 🔄 Dynamic Competition & User State Engine
-
-Instead of relying on fragile cron jobs to toggle database status fields, competition states are computed at request time:
-
-$$\text{Registration} = \begin{cases} \text{open} & \text{if } \text{now} \le \text{registerBefore} \text{ and } \text{spotsBooked} < \text{totalSpots} \\ \text{closed} & \text{otherwise} \end{cases}$$
-
-$$\text{Submission} = \begin{cases} \text{not\_started} & \text{if } \text{now} < \text{submissionStart} \\ \text{open} & \text{if } \text{submissionStart} \le \text{now} \le \text{submissionEnd} \\ \text{closed} & \text{if } \text{now} > \text{submissionEnd} \end{cases}$$
-
-This ensures registration status is always 100% accurate, even during high concurrency or timezone variations.
-
----
-
-## 🛡 Security & Concurrency
-
-1. **Spot Overbooking Protection**:
-   ```javascript
-   Competition.findOneAndUpdate(
-     { _id: competitionId, spotsBooked: { $lt: competition.totalSpots } },
-     { $inc: { spotsBooked: 1 } },
-     { new: true }
-   );
+   ```powershell
+   cd backend
+   npm ci
+   npm run seed
+   npm run dev
    ```
-2. **Password Security**: Passwords are never stored in plaintext and are hashed using `bcryptjs` with salt factor 10. `passwordHash` is excluded from standard queries by default (`select: false`).
-3. **Role Enforcement**: Protected routes use the `requireAdmin` middleware to verify the user token's role claim before allowing destructive operations.
+
+   `npm run seed` adds the sample judges and competitions only when they are missing. It does not delete or overwrite existing records.
+
+3. In a separate terminal, start the participant app:
+
+   ```powershell
+   cd mobile
+   Copy-Item .env.example .env
+   npm ci
+   npx expo start
+   ```
+
+   Set `EXPO_PUBLIC_API_URL` in `mobile/.env` to the API's reachable address. For an Android emulator, use `http://10.0.2.2:5000`; for a physical phone, use your computer's LAN address, for example `http://192.168.1.25:5000`. `localhost` on a phone refers to the phone itself. Set the same Cloudinary cloud name in `backend/.env` and `mobile/.env`; restrict the unsigned preset to video uploads with a size limit in Cloudinary.
+
+4. In another terminal, start the organizer dashboard:
+
+   ```powershell
+   cd admin-web
+   npm ci
+   npm run dev
+   ```
+
+   Copy `admin-web/.env.example` to `admin-web/.env` and configure `VITE_API_URL` when the backend is not at `http://localhost:5000`.
+
+The API health check is `GET /health`. The admin login requires an existing account with the `admin` role; public signup creates participant accounts only.
+
+## Registration and payment behavior
+
+| Area | Available in preview |
+| --- | --- |
+| Browse and search competitions | Reads the API catalog |
+| Create organizer competitions | Writes a competition through the authenticated admin API |
+| Participant account signup and login | Creates/authenticates a participant account |
+| Participant registration | Direct registration; unique per user and competition, spot-limited, no payment collected |
+| Payment webhook API | Real payment processing is not configured (`501 Not Implemented`) |
+| Performance uploads | Uploads videos to the configured unsigned Cloudinary preset and stores the submission record |
+| Admin participants, entries, and published results | Reads existing API data |
+| Edit/delete competitions and publish results from the dashboard | Not available in this preview |
+
+Seeded competition and judge content is illustrative. The seed script does not create participants, registrations, submissions, or winners. The seed script is non-destructive; review existing database records before displaying them publicly. Registration records use the separate `demo` payment status and are not proof of payment.
+
+## Deployment configuration
+
+Deploy the backend, admin site, and mobile builds separately.
+
+### Backend (for example, Render)
+
+- Root directory: `backend`
+- Build command: `npm ci`
+- Start command: `node server.js`
+- Set `MONGODB_URI`, a new random `JWT_SECRET`, `NODE_ENV=production`, and `CORS_ORIGINS`.
+- Set `CLOUDINARY_CLOUD_NAME` to the Cloudinary account used by the app so the API only accepts video URLs hosted in that account.
+- `CORS_ORIGINS` is a comma-separated list of exact browser origins for the deployed admin and mobile web frontends. In production, browser requests from other origins are not allowed. Native mobile requests do not use browser CORS.
+- Render provides `PORT`.
+- Verify the service using `/health`.
+
+### Admin web (for example, Vercel)
+
+- Root directory: `admin-web`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Set `VITE_API_URL` to the deployed HTTPS API origin.
+
+### Mobile (Expo EAS)
+
+- Set `EXPO_PUBLIC_API_URL` to the deployed HTTPS API origin before building.
+- Set `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` and `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` to an **unsigned preset restricted to video uploads** in the matching Cloudinary account. These values are public client configuration, not secrets.
+- Configure real iOS bundle and Android package identifiers and signing credentials before store distribution.
+- Never put server secrets in Expo public variables; `EXPO_PUBLIC_*` values are shipped in the client bundle.
+
+## Production readiness
+
+This project is deployable as an interactive competition app, but it does not process real payments. The public unsigned upload preset is only appropriate when restricted to the intended video formats and size limits. Competition edit/delete and result-publishing workflows are not available in the dashboard. The web clients also store bearer tokens in browser storage. Before operating with real-money entry fees, add server-verified payment processing, use a secured upload flow and storage policy, implement the missing organizer workflows, move browser authentication to an appropriate secure cookie/session design, set production CORS origins, review database access and backups, and have payment and file-upload flows security-reviewed.
