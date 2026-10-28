@@ -117,7 +117,7 @@ async function fetchCompetitionData(id: string | undefined, token: string | null
 export default function CompetitionDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const { token } = useAuth();
+  const { token, logout } = useAuth();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [buttonText, setButtonText] = useState('Explore opportunity');
   const [loading, setLoading] = useState(true);
@@ -208,6 +208,11 @@ export default function CompetitionDetailScreen() {
         body: JSON.stringify({}),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          await logout();
+          setActionMessage('Your session is no longer valid. Please sign in again, then register.');
+          return;
+        }
         throw new Error(await responseMessage(response, 'Unable to register for this competition.'));
       }
       setActionMessage('You are registered. No payment is collected.');

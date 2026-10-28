@@ -5,6 +5,7 @@ Expo Router app for iOS, Android, and web. For repository setup, API configurati
 ## Run locally
 
 ```powershell
+Copy-Item .env.example .env
 npm ci
 npx expo start
 ```
