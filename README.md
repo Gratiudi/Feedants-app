@@ -66,7 +66,7 @@ Seeded competition and judge content is illustrative. The seed script does not c
 
 ## Deployment configuration
 
-Deploy the backend, admin site, and mobile builds separately.
+Deploy the backend, organizer dashboard, and participant website separately.
 
 ### Backend (for example, Render)
 
@@ -75,7 +75,7 @@ Deploy the backend, admin site, and mobile builds separately.
 - Start command: `node server.js`
 - Set `MONGODB_URI`, a new random `JWT_SECRET`, `NODE_ENV=production`, and `CORS_ORIGINS`.
 - Set `CLOUDINARY_CLOUD_NAME` to the Cloudinary account used by the app so the API only accepts video URLs hosted in that account.
-- `CORS_ORIGINS` is a comma-separated list of exact browser origins for the deployed admin and mobile web frontends. In production, browser requests from other origins are not allowed. Native mobile requests do not use browser CORS.
+- `CORS_ORIGINS` is a comma-separated list of exact browser origins for the deployed admin and participant website, with no trailing slash (for example `https://feedants.example.com`). In production, browser requests from other origins are not allowed.
 - Render provides `PORT`.
 - Verify the service using `/health`.
 
@@ -86,11 +86,15 @@ Deploy the backend, admin site, and mobile builds separately.
 - Output directory: `dist`
 - Set `VITE_API_URL` to the deployed HTTPS API origin.
 
-### Mobile (Expo EAS)
+### Participant website (Render Static Site)
 
-- Set `EXPO_PUBLIC_API_URL` to the deployed HTTPS API origin before building.
-- Set `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` and `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` to an **unsigned preset restricted to video uploads** in the matching Cloudinary account. These values are public client configuration, not secrets.
-- Configure real iOS bundle and Android package identifiers and signing credentials before store distribution.
+- Root directory: `mobile`
+- Build command: `npm ci && npx expo export --platform web`
+- Publish directory: `dist`
+- Set `EXPO_PUBLIC_API_URL` to the deployed backend's HTTPS origin (for example `https://feedants-api.onrender.com`) in the static site's **build environment**.
+- Set `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` and `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` to an **unsigned preset restricted to video uploads** in the matching Cloudinary account. These are public client configuration values, not secrets.
+- Add the static site's exact public origin to the backend's `CORS_ORIGINS`, then redeploy the backend and rebuild the static site after changing environment variables.
+- Configure a rewrite from `/*` to `/index.html` if direct visits to nested routes return 404.
 - Never put server secrets in Expo public variables; `EXPO_PUBLIC_*` values are shipped in the client bundle.
 
 ## Production readiness
